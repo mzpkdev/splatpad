@@ -4,6 +4,8 @@
 
 ## Verification
 
+- [ ] Formatting checks pass.
+- [ ] Lint checks pass.
 - [ ] Type checks pass.
 - [ ] Relevant automated tests pass.
 - [ ] The package and example site build successfully where relevant.

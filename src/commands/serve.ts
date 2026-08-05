@@ -1,13 +1,13 @@
-import { resolve } from 'node:path'
-import { defineCommand, effect, terminal } from 'cmdore'
-import { createServer } from 'vite'
-import { siteRoot } from '../arguments/index'
-import { createSiteConfig } from '../core/site-config'
-import { untilTerminated } from '../core/until-terminated'
-import { host, port } from '../options/index'
+import { resolve } from "node:path"
+import { defineCommand, effect, terminal } from "cmdore"
+import { createServer } from "vite"
+import { siteRoot } from "../arguments/index"
+import { createSiteConfig } from "../core/site-config"
+import { untilTerminated } from "../core/until-terminated"
+import { host, port } from "../options/index"
 
 export const serve = async (
-  root = '.',
+  root = ".",
   hostname?: string,
   portNumber?: number,
   waitForTermination: () => Promise<void> = untilTerminated,
@@ -23,7 +23,7 @@ export const serve = async (
     await server.listen()
     if (!terminal.quiet && !terminal.jsonMode) server.printUrls()
     terminal.json({
-      command: 'serve',
+      command: "serve",
       root: absoluteRoot,
       urls: server.resolvedUrls,
     })
@@ -34,8 +34,8 @@ export const serve = async (
 }
 
 export default defineCommand({
-  name: 'serve',
-  description: 'Serve a Liquid site with Vite.',
+  name: "serve",
+  description: "Serve a Liquid site with Vite.",
   arguments: [siteRoot],
   options: [host, port],
   run: ({ root, host: hostname, port: portNumber }) =>

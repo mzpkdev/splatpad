@@ -1,7 +1,7 @@
-import { defineOption } from 'cmdore'
+import { defineOption } from "cmdore"
 
 export const host = defineOption({
-  name: 'host',
-  description: 'Host interface for the development server.',
+  name: "host",
+  description: "Host interface for the development server.",
   arity: 1,
 })

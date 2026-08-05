@@ -2,25 +2,15 @@
 
 This document outlines the coding conventions for this project.
 
-**Note:** This project uses IntelliJ IDEA's code style configuration. Please refer to `.idea/codeStyles/Project.xml` for the complete code style settings.
+Oxfmt is the formatting source of truth. Run `npm run format` to apply it and
+`npm run format:check` to verify it without modifying files. Run `npm run lint`
+for the Oxlint quality checks enforced in CI.
 
 ## General Style
 
 - Use **double quotes** by default for strings
 - **Omit semicolons** where possible
-- Use **spaces between curly braces** for objects, imports, and array destructuring
-
-```typescript
-// Good
-const obj = { key: "value" }
-import { something } from "module"
-const [ first, second ] = array
-
-// Bad
-const obj = {key: "value"};
-import {something} from 'module'
-const [first,second] = array;
-```
+- Let Oxfmt decide whitespace and wrapping
 
 ## Imports
 
@@ -32,7 +22,7 @@ const [first,second] = array;
 import * as path from "path"
 import * as fs from "fs"
 import { something } from "./local-module"
-import express from "express"  // acceptable: standard pattern for express
+import express from "express" // acceptable: standard pattern for express
 ```
 
 ## Control Flow
@@ -108,13 +98,13 @@ async function fetchData() {
 // Good
 const names: string[] = []
 const lookup: Record<string, number> = {}
-const handler: (event: Event) => void = (e) => { }
+const handler: (event: Event) => void = (e) => {}
 const items: readonly string[] = ["a", "b"]
 
 // Bad
 const names: Array<string> = []
 const lookup: Object = {}
-const handler: Function = (e) => { }
+const handler: Function = (e) => {}
 const items: ReadonlyArray<string> = ["a", "b"]
 ```
 

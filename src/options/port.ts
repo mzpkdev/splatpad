@@ -1,8 +1,8 @@
-import { defineOption } from 'cmdore'
+import { defineOption } from "cmdore"
 
 export const port = defineOption({
-  name: 'port',
-  description: 'Port for the development server.',
+  name: "port",
+  description: "Port for the development server.",
   arity: 1,
   coerce: (raw, { label }) => {
     const value = Number(raw)

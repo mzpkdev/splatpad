@@ -14,6 +14,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Check formatting
+        run: npm run format:check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Lint source
+        run: npm run lint
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest

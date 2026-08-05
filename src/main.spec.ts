@@ -1,12 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  describe as context,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterEach, beforeEach, describe, describe as context, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),

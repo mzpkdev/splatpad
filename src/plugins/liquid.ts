@@ -1,7 +1,7 @@
-import { readFile } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
-import { Liquid } from 'liquidjs'
-import type { Plugin } from 'vite'
+import { readFile } from "node:fs/promises"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+import { Liquid } from "liquidjs"
+import type { Plugin } from "vite"
 
 interface LiquidPluginOptions {
   root: string
@@ -9,26 +9,29 @@ interface LiquidPluginOptions {
   data?: string
 }
 
+const isOutsideRoot = (path: string): boolean =>
+  path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)
+
 export function liquidPlugin({
   root,
-  page = 'index',
-  data = 'data/site.json',
+  page = "index",
+  data = "data/site.json",
 }: LiquidPluginOptions): Plugin {
   const siteRoot = resolve(root)
   const dataFile = resolve(siteRoot, data)
   const dataRoot = dirname(dataFile)
   const engine = new Liquid({
-    root: resolve(siteRoot, 'pages'),
-    layouts: resolve(siteRoot, 'layouts'),
-    partials: resolve(siteRoot, 'partials'),
-    extname: '.liquid',
+    root: resolve(siteRoot, "pages"),
+    layouts: resolve(siteRoot, "layouts"),
+    partials: resolve(siteRoot, "partials"),
+    extname: ".liquid",
     cache: false,
     strictFilters: true,
     strictVariables: true,
   })
 
   const render = async (): Promise<string> => {
-    const context = JSON.parse(await readFile(dataFile, 'utf8')) as object
+    const context = JSON.parse(await readFile(dataFile, "utf8")) as object
     const html = await engine.renderFile(page, context)
 
     if (html === undefined) {
@@ -39,30 +42,23 @@ export function liquidPlugin({
   }
 
   return {
-    name: 'splatpad:liquid',
-    enforce: 'pre',
+    name: "splatpad:liquid",
+    enforce: "pre",
     transformIndexHtml: {
-      order: 'pre',
+      order: "pre",
       handler: render,
     },
     handleHotUpdate({ file, server }) {
       const sitePath = relative(siteRoot, file)
       const dataPath = relative(dataRoot, file)
-      const isOutsideRoot = (path: string): boolean =>
-        path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)
-      const isSiteFile =
-        sitePath !== '' && !isOutsideRoot(sitePath)
-      const isDataFile =
-        dataPath !== '' && !isOutsideRoot(dataPath)
+      const isSiteFile = sitePath !== "" && !isOutsideRoot(sitePath)
+      const isDataFile = dataPath !== "" && !isOutsideRoot(dataPath)
 
-      if (
-        !isSiteFile ||
-        (!file.endsWith('.liquid') && !(isDataFile && file.endsWith('.json')))
-      ) {
+      if (!isSiteFile || (!file.endsWith(".liquid") && !(isDataFile && file.endsWith(".json")))) {
         return
       }
 
-      server.ws.send({ type: 'full-reload' })
+      server.ws.send({ type: "full-reload" })
       return []
     },
   }
