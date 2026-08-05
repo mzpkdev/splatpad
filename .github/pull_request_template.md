@@ -1,7 +1,11 @@
-## User impact
+## What it is
 
-<!-- What problem does this solve, and what changes for users? -->
+<!-- Briefly describe the change. -->
 
-## Verification
+## Why we need it
 
-<!-- How was the change verified? Include useful steps, commands, screenshots, or output. -->
+<!-- Explain the problem it solves or the value it adds. -->
+
+## Demo
+
+<!-- If applicable, add screenshots, recordings, or example output. Otherwise remove this section. -->
