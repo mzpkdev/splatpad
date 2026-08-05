@@ -11,9 +11,7 @@ interface PackageMetadata {
 
 export const main = async (...argv: string[]): Promise<number> => {
   const packagePath = url.fileURLToPath(new URL("../package.json", import.meta.url))
-  const packageJson = JSON.parse(
-    await fs.readFile(packagePath, "utf8"),
-  ) as PackageMetadata
+  const packageJson = JSON.parse(await fs.readFile(packagePath, "utf8")) as PackageMetadata
 
   return execute([buildCommand, serveCommand], {
     argv,

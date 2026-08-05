@@ -1,6 +1,6 @@
-import { defineArgument } from 'cmdore'
+import { defineArgument } from "cmdore"
 
 export const siteRoot = defineArgument({
-  name: 'root',
-  description: 'Directory containing the Liquid site.',
+  name: "root",
+  description: "Directory containing the Liquid site.",
 })

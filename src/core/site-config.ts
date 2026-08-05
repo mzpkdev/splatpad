@@ -1,8 +1,8 @@
-import { presetWind4 } from '@unocss/preset-wind4'
-import { terminal } from 'cmdore'
-import UnoCSS from 'unocss/vite'
-import type { InlineConfig, ServerOptions } from 'vite'
-import { liquidPlugin } from '../plugins/liquid'
+import { presetWind4 } from "@unocss/preset-wind4"
+import { terminal } from "cmdore"
+import UnoCSS from "unocss/vite"
+import type { InlineConfig, ServerOptions } from "vite"
+import { liquidPlugin } from "../plugins/liquid"
 
 interface SiteConfigOptions {
   outDir?: string
@@ -15,7 +15,7 @@ export const createSiteConfig = (
 ): InlineConfig => ({
   root,
   configFile: false,
-  logLevel: terminal.quiet || terminal.jsonMode ? 'silent' : 'info',
+  logLevel: terminal.quiet || terminal.jsonMode ? "silent" : "info",
   plugins: [
     liquidPlugin({ root }),
     UnoCSS({

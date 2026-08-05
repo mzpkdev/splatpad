@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Check formatting
+        run: npm run format:check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Lint source
+        run: npm run lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Check types
+        run: npm run typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Run behavior suite
+        run: npm test
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run example smoke suite
+        run: npm run test:e2e
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Build package and example
+        run: npm run build:example
+
+      - name: Inspect package contents
+        run: npm pack --dry-run
+
+      - name: Check for modified tracked files
+        run: |
+          if ! git diff --quiet HEAD --; then
+            echo 'Uncommitted changes detected:'
+            git diff HEAD --
+            exit 1
+          fi

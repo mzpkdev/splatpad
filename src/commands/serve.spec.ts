@@ -1,12 +1,5 @@
-import { resolve } from 'node:path'
-import {
-  beforeEach,
-  describe,
-  describe as context,
-  expect,
-  it,
-  vi,
-} from 'vitest'
+import { resolve } from "node:path"
+import { beforeEach, describe, describe as context, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   close: vi.fn(),
@@ -17,21 +10,21 @@ const mocks = vi.hoisted(() => ({
   terminal: { json: vi.fn(), log: vi.fn(), quiet: false, jsonMode: false },
 }))
 
-vi.mock('cmdore', () => ({
+vi.mock("cmdore", () => ({
   defineArgument: vi.fn((value) => value),
   defineCommand: vi.fn((value) => value),
   defineOption: vi.fn((value) => value),
   effect: vi.fn((value) => value),
   terminal: mocks.terminal,
 }))
-vi.mock('vite', () => ({ createServer: mocks.createServer }))
-vi.mock('../core/site-config', () => ({
+vi.mock("vite", () => ({ createServer: mocks.createServer }))
+vi.mock("../core/site-config", () => ({
   createSiteConfig: mocks.createSiteConfig,
 }))
 
-import { serve } from './serve'
+import { serve } from "./serve"
 
-describe('serve', () => {
+describe("serve", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.terminal.quiet = false
@@ -40,18 +33,18 @@ describe('serve', () => {
       close: mocks.close,
       listen: mocks.listen,
       printUrls: mocks.printUrls,
-      resolvedUrls: { local: ['http://localhost:4173/'], network: [] },
+      resolvedUrls: { local: ["http://localhost:4173/"], network: [] },
     })
   })
 
-  it('listens with the requested site and network configuration', async () => {
+  it("listens with the requested site and network configuration", async () => {
     const waitForTermination = vi.fn().mockResolvedValue(undefined)
-    const absoluteRoot = resolve(process.cwd(), 'fixtures/site')
+    const absoluteRoot = resolve(process.cwd(), "fixtures/site")
 
-    await serve('fixtures/site', '127.0.0.1', 4173, waitForTermination)
+    await serve("fixtures/site", "127.0.0.1", 4173, waitForTermination)
 
     expect(mocks.createSiteConfig).toHaveBeenCalledWith(absoluteRoot, {
-      server: { host: '127.0.0.1', port: 4173 },
+      server: { host: "127.0.0.1", port: 4173 },
     })
     expect(mocks.listen).toHaveBeenCalledOnce()
     expect(mocks.printUrls).toHaveBeenCalledOnce()
@@ -59,27 +52,27 @@ describe('serve', () => {
     expect(mocks.close).toHaveBeenCalledOnce()
   })
 
-  context('when terminal output is machine-readable', () => {
-    it('reports server data without printing interactive URLs', async () => {
+  context("when terminal output is machine-readable", () => {
+    it("reports server data without printing interactive URLs", async () => {
       mocks.terminal.jsonMode = true
 
-      await serve('.', undefined, undefined, async () => undefined)
+      await serve(".", undefined, undefined, async () => undefined)
 
       expect(mocks.printUrls).not.toHaveBeenCalled()
       expect(mocks.terminal.json).toHaveBeenCalledWith({
-        command: 'serve',
+        command: "serve",
         root: process.cwd(),
-        urls: { local: ['http://localhost:4173/'], network: [] },
+        urls: { local: ["http://localhost:4173/"], network: [] },
       })
     })
   })
 
-  context('when termination waiting fails', () => {
-    it('closes the Vite server before propagating the failure', async () => {
-      const failure = new Error('termination failed')
+  context("when termination waiting fails", () => {
+    it("closes the Vite server before propagating the failure", async () => {
+      const failure = new Error("termination failed")
 
       await expect(
-        serve('.', undefined, undefined, async () => Promise.reject(failure)),
+        serve(".", undefined, undefined, async () => Promise.reject(failure)),
       ).rejects.toBe(failure)
       expect(mocks.close).toHaveBeenCalledOnce()
     })
