@@ -1,0 +1,41 @@
+{
+  "name": "splatpad",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Build and serve LiquidJS sites with Tailwind CSS utility syntax.",
+  "bin": {
+    "splatpad": "bin/splatpad"
+  },
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "build": "obuild",
+    "build:example": "npm run build && node bin/splatpad build example",
+    "dev": "npm run build && node bin/splatpad serve example",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "obuild": "^0.4.38",
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@unocss/preset-wind4": "^66.7.5",
+    "cmdore": "^0.4.1",
+    "liquidjs": "^10.28.0",
+    "unocss": "^66.7.5",
+    "vite": "^8.2.0"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md"
+  ]
+}

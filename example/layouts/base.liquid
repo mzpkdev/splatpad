@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{{ site.description | escape }}">
+    <title>{{ page.title | escape }} | {{ site.name | escape }}</title>
+  </head>
+  <body class="min-h-screen bg-zinc-950 text-zinc-100 antialiased">
+    <header class="border-b border-zinc-800">
+      <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+        <a class="text-lg font-semibold tracking-tight" href="/">{{ site.name }}</a>
+        <nav aria-label="Primary navigation">
+          <ul class="flex items-center gap-6 text-sm">
+            {% for link in navigation %}
+              <li>
+                <a
+                  class="transition-colors hover:text-white {% if link.current %}text-white{% else %}text-zinc-400{% endif %}"
+                  href="{{ link.href }}"
+                >
+                  {{ link.label }}
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    {% block content %}{% endblock %}
+
+    <footer class="border-t border-zinc-800">
+      <div class="mx-auto max-w-6xl px-6 py-8 text-sm text-zinc-500">
+        Built as a Splatpad compiler fixture.
+      </div>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

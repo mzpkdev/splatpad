@@ -1,0 +1,46 @@
+{
+  "site": {
+    "name": "Splatpad",
+    "description": "A small proving ground for template-driven websites."
+  },
+  "navigation": [
+    {
+      "label": "Home",
+      "href": "/",
+      "current": true
+    },
+    {
+      "label": "Notes",
+      "href": "/notes/",
+      "current": false
+    },
+    {
+      "label": "About",
+      "href": "/about/",
+      "current": false
+    }
+  ],
+  "page": {
+    "title": "Build small sites from clear inputs",
+    "eyebrow": "LiquidJS + Tailwind syntax",
+    "description": "This fixture exercises layouts, partials, loops, conditions, filters, and utility classes.",
+    "cta": {
+      "label": "Read the notes",
+      "href": "/notes/"
+    }
+  },
+  "features": [
+    {
+      "title": "Templates",
+      "description": "Liquid keeps content and structure readable while the toolchain evolves."
+    },
+    {
+      "title": "Utilities",
+      "description": "Tailwind-compatible classes keep styling close to the markup."
+    },
+    {
+      "title": "Fixtures",
+      "description": "A stable example gives the compiler something concrete to prove itself against."
+    }
+  ]
+}
