@@ -78,6 +78,25 @@ jobs:
       - name: Run behavior suite
         run: npm test
 
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up build dependencies
+        uses: ./.github/actions/setup-build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run example smoke suite
+        run: npm run test:e2e
+
   build:
     name: Build
     runs-on: ubuntu-latest
