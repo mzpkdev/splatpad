@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-test.describe("example site", () => {
+test.describe("Splatpad", () => {
   test("renders the compiled product fixture", async ({ page }) => {
     await page.goto("/")
 
