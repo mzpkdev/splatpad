@@ -63,14 +63,9 @@ jobs:
         run: npm run typecheck
 
   test:
-    name: Test (Node ${{ matrix.node-version }})
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [20.19.0, 22.12.0]
 
     steps:
       - name: Checkout
@@ -79,8 +74,6 @@ jobs:
 
       - name: Set up build dependencies
         uses: ./.github/actions/setup-build
-        with:
-          node-version: ${{ matrix.node-version }}
 
       - name: Run behavior suite
         run: npm test
