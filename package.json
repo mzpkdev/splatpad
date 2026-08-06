@@ -22,7 +22,7 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings .",
     "lint:fix": "oxlint --fix .",
-    "preview:example": "vite preview example --host 127.0.0.1 --port 4173",
+    "preview:example": "vite preview example --config e2e/vite-preview.config.ts --host 127.0.0.1 --port 4173",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:watch": "vitest",

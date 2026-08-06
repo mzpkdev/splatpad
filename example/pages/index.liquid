@@ -2,34 +2,48 @@
 
 {% block content %}
   <main>
-    <section class="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-      <p class="mb-4 text-sm font-semibold uppercase tracking-widest text-cyan-400">
+    <section class="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.1fr_0.9fr]">
+      <div>
+      <p class="mb-5 text-sm font-bold uppercase tracking-[0.18em] text-[#b14f31]">
         {{ page.eyebrow }}
       </p>
-      <h1 class="max-w-4xl text-4xl font-bold tracking-tight sm:text-6xl">
+      <h1 class="max-w-3xl text-5xl font-bold leading-[0.95] tracking-[-0.04em] sm:text-7xl">
         {{ page.title }}
       </h1>
-      <p class="mt-6 max-w-2xl text-lg leading-8 text-zinc-400">
+      <p class="mt-7 max-w-xl text-lg leading-8 text-[#62584f]">
         {{ page.description }}
       </p>
-
-      {% if page.cta %}
+      <div class="mt-9 flex flex-wrap gap-3">
         <a
-          class="mt-8 inline-flex rounded-md bg-cyan-400 px-5 py-3 font-semibold text-zinc-950 hover:bg-cyan-300"
+          class="inline-flex rounded-full bg-[#bd4828] px-6 py-3 font-bold text-white transition-transform hover:-translate-y-0.5"
           href="{{ page.cta.href }}"
         >
           {{ page.cta.label }}
         </a>
-      {% endif %}
+        <a class="inline-flex rounded-full border border-[#302b27]/20 px-6 py-3 font-bold" href="/visit/">Plan a visit</a>
+      </div>
+      </div>
+      <div class="relative mx-auto aspect-square w-full max-w-md rounded-[3rem] bg-[#dbe5cb] p-8 sm:p-12" role="img" aria-label="A fresh loaf of bread with a baked-this-morning label">
+        <div class="absolute left-8 top-9 size-16 rounded-full bg-[#f4c95d]"></div>
+        <div class="grid h-full place-items-center rounded-[45%_55%_48%_52%] bg-[#e9a55f] text-8xl shadow-[inset_-18px_-20px_0_rgba(177,79,49,0.12)]" aria-hidden="true">☁</div>
+        <span class="absolute bottom-9 right-7 rotate-6 rounded-full bg-white px-4 py-2 text-sm font-bold shadow-sm">Baked this morning</span>
+      </div>
     </section>
 
-    <section class="border-t border-zinc-800 bg-zinc-900/50">
-      <div class="mx-auto grid max-w-6xl gap-6 px-6 py-20 md:grid-cols-3">
-        {% for feature in features %}
-          {% render 'feature-card', feature: feature %}
-        {% else %}
-          <p class="text-zinc-400">No features configured.</p>
+    <section class="bg-[#f4e6d2]">
+      <div class="mx-auto max-w-6xl px-5 py-16 sm:px-8">
+        <div class="mb-9 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p class="text-sm font-bold uppercase tracking-[0.18em] text-[#b14f31]">On the counter</p>
+            <h2 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">A few neighborhood favorites</h2>
+          </div>
+          <a class="font-bold underline decoration-[#bd4828] decoration-2 underline-offset-4" href="/menu/">See the full menu</a>
+        </div>
+        <div class="grid gap-5 md:grid-cols-3">
+        {% for item in featured_items %}
+          {% render 'menu-card', item: item %}
         {% endfor %}
+        </div>
       </div>
     </section>
   </main>

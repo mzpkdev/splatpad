@@ -5,12 +5,36 @@ const mocks = vi.hoisted(() => ({
   presetWind4: vi.fn(() => ({ name: "wind4-preset" })),
   terminal: { quiet: false, jsonMode: false },
   unoCss: vi.fn(() => ({ name: "unocss" })),
+  routes: [
+    {
+      entry: "/sites/example/index.html",
+      inputName: "index",
+      route: "/",
+      template: "/sites/example/pages/index.liquid",
+      templateName: "index",
+    },
+    {
+      entry: "/sites/example/menu/index.html",
+      inputName: "menu",
+      route: "/menu/",
+      template: "/sites/example/pages/menu.liquid",
+      templateName: "menu",
+    },
+    {
+      entry: "/sites/example/journal/post/index.html",
+      inputName: "journal/post",
+      route: "/journal/post/",
+      template: "/sites/example/pages/journal/post.liquid",
+      templateName: "journal/post",
+    },
+  ],
 }))
 
 vi.mock("@unocss/preset-wind4", () => ({ presetWind4: mocks.presetWind4 }))
 vi.mock("cmdore", () => ({ terminal: mocks.terminal }))
 vi.mock("unocss/vite", () => ({ default: mocks.unoCss }))
 vi.mock("../plugins/liquid", () => ({ liquidPlugin: mocks.liquidPlugin }))
+vi.mock("./site-routes", () => ({ discoverSiteRoutes: vi.fn(() => mocks.routes) }))
 
 import { createSiteConfig } from "./site-config"
 
@@ -30,12 +54,26 @@ describe("createSiteConfig", () => {
 
     expect(config).toMatchObject({
       root: "/sites/example",
+      appType: "mpa",
       configFile: false,
       logLevel: "info",
-      build: { outDir: "/sites/example/dist", emptyOutDir: true },
       server,
     })
-    expect(mocks.liquidPlugin).toHaveBeenCalledWith({ root: "/sites/example" })
+    expect(config.build).toEqual({
+      outDir: "/sites/example/dist",
+      emptyOutDir: true,
+      rollupOptions: {
+        input: {
+          index: "/sites/example/index.html",
+          menu: "/sites/example/menu/index.html",
+          "journal/post": "/sites/example/journal/post/index.html",
+        },
+      },
+    })
+    expect(mocks.liquidPlugin).toHaveBeenCalledWith({
+      root: "/sites/example",
+      routes: mocks.routes,
+    })
     expect(mocks.presetWind4).toHaveBeenCalledOnce()
     expect(mocks.unoCss).toHaveBeenCalledWith({
       configFile: false,

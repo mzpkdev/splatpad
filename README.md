@@ -8,12 +8,33 @@ splatpad build [root] [--out-dir <dir>]
 splatpad serve [root] [--host <host>] [--port <port>]
 ```
 
-The site root defaults to the current directory. It contains `index.html`,
-`pages/index.liquid`, `layouts/`, `partials/`, `data/site.json`, and a client
-entry that imports `virtual:uno.css`. Build output defaults to `dist` inside the
-site root. Relative `--out-dir` values are resolved from the site root. Output
-must remain strictly inside the site root; nested absolute paths are accepted,
-but the site root itself and paths outside it are rejected.
+The site root defaults to the current directory. Routes come recursively from
+page templates ending in `.liquid`, `.html`, or `.liquid.html`:
+`pages/index.liquid` is `/`, `pages/about.html` is `/about/`,
+`pages/journal/index.liquid.html` is `/journal/`, and
+`pages/journal/post.liquid` is `/journal/post/`. All three extensions use
+LiquidJS. Directory and file stems use lowercase kebab-case. No route
+configuration or matching HTML entry files are needed.
+
+The suffixes are aliases for the same route convention. Defining both
+`pages/about.html` and `pages/about.liquid` is a route collision and fails with
+both source files named.
+
+Adding, editing, renaming, or deleting a page template updates the running
+development server without a restart. Broken Liquid or JSON is shown through
+Vite's error overlay and reloads after it is fixed. `data/site.json` supplies
+render data; its optional `pages` keys do not create or remove routes.
+
+Load UnoCSS from its generated stylesheet in the document head with
+`<link rel="stylesheet" href="/__uno.css">`. This keeps the generated CSS
+render-blocking in development and production, without requiring a JavaScript
+entry. Utilities introduced in a rendered template are generated while the
+development server keeps running.
+
+Build output defaults to `dist` inside the site root. Relative `--out-dir`
+values are resolved from the site root. Output must remain strictly inside the
+site root; nested absolute paths are accepted, but the site root itself and
+paths outside it are rejected.
 
 Run the behavior suite once with `npm test`, or in watch mode with
 `npm run test:watch`.
