@@ -63,6 +63,7 @@ html, body, #root, .designer {
   background: transparent;
 }
 .page-frame {
+  position: relative;
   width: 1440px;
   overflow: hidden;
   border: 1px solid #c7c7c7;
@@ -89,7 +90,19 @@ html, body, #root, .designer {
   background: #fff;
   pointer-events: none;
 }
-.page-frame--interactive .page-frame__preview { pointer-events: auto; }
+.page-frame__interaction-surface {
+  position: absolute;
+  z-index: 1;
+  top: 44px;
+  left: 0;
+  width: 1440px;
+  background: transparent;
+  cursor: crosshair;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+}
+.page-frame--interactive .page-frame__interaction-surface { pointer-events: auto; }
 .designer-toolbar {
   position: absolute;
   z-index: 10;
