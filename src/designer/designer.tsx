@@ -21,51 +21,26 @@ interface InspectedElement {
 }
 
 interface PageNodeData extends Record<string, unknown> {
-  clearInspection: number
   contentHeight: number
   inspecting: boolean
   interactive: boolean
-  onActivateTool: (tool: DesignerTool) => void
-  onClearInspection: () => void
   onHeight: (route: string, height: number) => void
-  onInspect: (inspection: InspectedElement) => void
+  onInspect: (inspection: InspectedElement, select: () => void) => void
   onInvalidate: (route: string) => void
   onPanEnd: () => void
   onPanMove: (position: { x: number; y: number }) => void
   onPanStart: (position: { x: number; y: number }) => void
-  onSpacePanning: (active: boolean) => void
+  onRegisterSelectionClear: (route: string, clear: (() => void) | undefined) => void
   route: string
+  selectedRoute: string | undefined
+  selectionGeneration: number
 }
 
 type PageNode = Node<PageNodeData, "page">
 
-const hoverAttribute = "data-splatpad-inspector-hover"
-const selectedAttribute = "data-splatpad-inspector-selected"
 const overlayAttribute = "data-splatpad-inspector-overlay"
-const inspectorStyleId = "splatpad-inspector-styles"
 const inspectionClickStreakMs = 500
-
-const eventElement = (event: Event, document: Document): Element | undefined => {
-  const ElementConstructor = document.defaultView?.Element
-  return ElementConstructor !== undefined && event.target instanceof ElementConstructor
-    ? event.target
-    : undefined
-}
-
-const installInspectorStyles = (document: Document): HTMLStyleElement => {
-  const existing = document.querySelector<HTMLStyleElement>(`#${inspectorStyleId}`)
-  if (existing !== null) {
-    return existing
-  }
-
-  const style = document.createElement("style")
-  style.id = inspectorStyleId
-  style.textContent = `
-    * { cursor: crosshair !important; }
-  `
-  document.head.append(style)
-  return style
-}
+const inspectionClickMovement = 4
 
 const documentHeight = (document: Document): number => {
   const body = document.body
@@ -79,49 +54,41 @@ const documentHeight = (document: Document): number => {
   )
 }
 
-const pointerPosition = (
-  frame: HTMLIFrameElement,
-  event: PointerEvent,
-): { x: number; y: number } => {
-  const bounds = frame.getBoundingClientRect()
-  const scaleX = frame.offsetWidth === 0 ? 1 : bounds.width / frame.offsetWidth
-  const scaleY = frame.offsetHeight === 0 ? 1 : bounds.height / frame.offsetHeight
-  return {
-    x: bounds.left + event.clientX * scaleX,
-    y: bounds.top + event.clientY * scaleY,
-  }
-}
-
 const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
-  const {
-    inspecting,
-    onActivateTool,
-    onClearInspection,
-    onInspect,
-    onInvalidate,
-    onPanEnd,
-    onPanMove,
-    onPanStart,
-    onSpacePanning,
-    route,
-  } = data
+  const { inspecting, onInspect, onInvalidate, onPanEnd, onPanMove, onPanStart, route } = data
   const frameRef = useRef<HTMLIFrameElement | null>(null)
+  const interactionSurfaceRef = useRef<HTMLDivElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
   const hoveredElement = useRef<Element | undefined>(undefined)
   const hitElement = useRef<Element | undefined>(undefined)
   const lastInspectionClick = useRef<number | undefined>(undefined)
   const selectedElement = useRef<Element | undefined>(undefined)
-  const middlePan = useRef<{ capture: Element; pointerId: number } | undefined>(undefined)
+  const middlePan = useRef<{ capture: HTMLDivElement; pointerId: number } | undefined>(undefined)
+  const primaryInspection = useRef<
+    | {
+        element: Element
+        pointerId: number
+        start: { x: number; y: number }
+      }
+    | undefined
+  >(undefined)
   const updateOverlays = useRef<() => void>(() => undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
 
   const clearMarkers = useCallback((): void => {
-    hoveredElement.current?.removeAttribute(hoverAttribute)
-    selectedElement.current?.removeAttribute(selectedAttribute)
     hoveredElement.current = undefined
     hitElement.current = undefined
     lastInspectionClick.current = undefined
     selectedElement.current = undefined
+    primaryInspection.current = undefined
+    updateOverlays.current()
+  }, [])
+
+  const clearSelection = useCallback((): void => {
+    hitElement.current = undefined
+    lastInspectionClick.current = undefined
+    selectedElement.current = undefined
+    primaryInspection.current = undefined
     updateOverlays.current()
   }, [])
 
@@ -161,11 +128,11 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       clearMarkers()
 
       const document = frame.contentDocument
-      if (document === null || !inspecting) {
+      const interactionSurface = interactionSurfaceRef.current
+      if (document === null || interactionSurface === null || !inspecting) {
         return
       }
 
-      const style = installInspectorStyles(document)
       const overlayDocument = frame.ownerDocument
       const overlayWindow = overlayDocument.defaultView
       const hoverOverlay = overlayDocument.createElement("div")
@@ -191,8 +158,8 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           overlay.style.setProperty(property, value, "important")
         }
       }
-      prepareOverlay(hoverOverlay, "#2563eb", 2_147_483_646)
-      prepareOverlay(selectedOverlay, "#7c3aed", 2_147_483_647)
+      prepareOverlay(hoverOverlay, "#2563eb", 8)
+      prepareOverlay(selectedOverlay, "#7c3aed", 8)
       overlayDocument.body.append(hoverOverlay, selectedOverlay)
 
       const positionOverlay = (overlay: HTMLDivElement, element: Element | undefined): void => {
@@ -280,87 +247,122 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         onPanEnd()
       }
 
-      const onPointerOver = (event: PointerEvent): void => {
-        const element = eventElement(event, document)
+      const hitTest = (event: PointerEvent): Element | undefined => {
+        const bounds = frame.getBoundingClientRect()
+        const scaleX = frame.offsetWidth === 0 ? 1 : bounds.width / frame.offsetWidth
+        const scaleY = frame.offsetHeight === 0 ? 1 : bounds.height / frame.offsetHeight
+        const x = (event.clientX - bounds.left) / scaleX - frame.clientLeft
+        const y = (event.clientY - bounds.top) / scaleY - frame.clientTop
+        return document.elementFromPoint(x, y) ?? undefined
+      }
+
+      const onPointerMove = (event: PointerEvent): void => {
+        event.preventDefault()
+        event.stopPropagation()
+        const current = middlePan.current
+        if (current !== undefined && current.pointerId === event.pointerId) {
+          onPanMove({ x: event.clientX, y: event.clientY })
+          return
+        }
+
+        const candidate = primaryInspection.current
+        if (
+          candidate !== undefined &&
+          candidate.pointerId === event.pointerId &&
+          Math.hypot(event.clientX - candidate.start.x, event.clientY - candidate.start.y) >
+            inspectionClickMovement
+        ) {
+          primaryInspection.current = undefined
+        }
+
+        const element = hitTest(event)
         if (element === undefined || element === hoveredElement.current) {
           return
         }
 
-        hoveredElement.current?.removeAttribute(hoverAttribute)
         hoveredElement.current = element
-        element.setAttribute(hoverAttribute, "")
         updateOverlayPositions()
       }
 
-      const onPointerOut = (event: PointerEvent): void => {
-        if (event.relatedTarget !== null) {
+      const onPointerLeave = (): void => {
+        if (middlePan.current !== undefined) {
           return
         }
-        hoveredElement.current?.removeAttribute(hoverAttribute)
+        primaryInspection.current = undefined
         hoveredElement.current = undefined
         updateOverlayPositions()
       }
 
       const onPointerDown = (event: PointerEvent): void => {
         event.preventDefault()
-        event.stopImmediatePropagation()
-
-        const element = eventElement(event, document)
+        event.stopPropagation()
+        const element = hitTest(event)
         if (event.button === 1) {
-          const capture = element ?? document.documentElement
           try {
-            capture.setPointerCapture(event.pointerId)
+            interactionSurface.setPointerCapture(event.pointerId)
           } catch {
             middlePan.current = undefined
             onPanEnd()
             return
           }
-          middlePan.current = { capture, pointerId: event.pointerId }
-          capture.addEventListener("lostpointercapture", onLostPointerCapture)
-          onPanStart(pointerPosition(frame, event))
+          middlePan.current = { capture: interactionSurface, pointerId: event.pointerId }
+          interactionSurface.addEventListener("lostpointercapture", onLostPointerCapture)
+          onPanStart({ x: event.clientX, y: event.clientY })
           return
         }
         if (event.button !== 0 || element === undefined) {
           return
         }
 
+        primaryInspection.current = {
+          element,
+          pointerId: event.pointerId,
+          start: { x: event.clientX, y: event.clientY },
+        }
+      }
+
+      const blockAction = (event: Event): void => {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+
+      const onPointerUp = (event: PointerEvent): void => {
+        endMiddlePan(event.pointerId, true)
+        blockAction(event)
+        const candidate = primaryInspection.current
+        primaryInspection.current = undefined
+        if (
+          event.button !== 0 ||
+          candidate === undefined ||
+          candidate.pointerId !== event.pointerId ||
+          Math.hypot(event.clientX - candidate.start.x, event.clientY - candidate.start.y) >
+            inspectionClickMovement ||
+          hitTest(event) !== candidate.element
+        ) {
+          return
+        }
+
         const currentSelection = selectedElement.current
         const continuesClickStreak =
-          hitElement.current === element &&
+          hitElement.current === candidate.element &&
           currentSelection !== undefined &&
           lastInspectionClick.current !== undefined &&
           event.timeStamp - lastInspectionClick.current <= inspectionClickStreakMs
         const nextSelection =
           continuesClickStreak && currentSelection !== undefined
             ? (currentSelection.parentElement ?? currentSelection)
-            : element
+            : candidate.element
 
-        selectedElement.current?.removeAttribute(selectedAttribute)
-        hitElement.current = element
-        lastInspectionClick.current = event.timeStamp
-        selectedElement.current = nextSelection
-        nextSelection.setAttribute(selectedAttribute, "")
-        updateOverlayPositions()
-        onInspect({ className: nextSelection.getAttribute("class") ?? "", route })
+        onInspect({ className: nextSelection.getAttribute("class") ?? "", route }, () => {
+          hitElement.current = candidate.element
+          lastInspectionClick.current = event.timeStamp
+          selectedElement.current = nextSelection
+          updateOverlayPositions()
+        })
       }
 
-      const blockAction = (event: Event): void => {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-      }
-
-      const onPointerMove = (event: PointerEvent): void => {
-        const current = middlePan.current
-        if (current === undefined || current.pointerId !== event.pointerId) {
-          return
-        }
-
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        onPanMove(pointerPosition(frame, event))
-      }
-
-      const onPointerUp = (event: PointerEvent): void => {
+      const onPointerCancel = (event: PointerEvent): void => {
+        primaryInspection.current = undefined
         endMiddlePan(event.pointerId, true)
         blockAction(event)
       }
@@ -369,101 +371,46 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         endMiddlePan((event as PointerEvent).pointerId, false)
       }
 
-      const onWheel = (event: WheelEvent): void => {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-
-        const frameBounds = frame.getBoundingClientRect()
-        const scale = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
-        frame.dispatchEvent(
-          new WheelEvent("wheel", {
-            bubbles: true,
-            cancelable: true,
-            clientX: frameBounds.left + event.clientX * scale,
-            clientY: frameBounds.top + event.clientY * scale,
-            ctrlKey: event.ctrlKey,
-            deltaMode: event.deltaMode,
-            deltaX: event.deltaX,
-            deltaY: event.deltaY,
-            metaKey: event.metaKey,
-            shiftKey: event.shiftKey,
-          }),
-        )
-      }
-
-      const onKeyDown = (event: KeyboardEvent): void => {
-        if (event.altKey || event.ctrlKey || event.metaKey) {
-          blockAction(event)
-          return
-        }
-
-        switch (event.key.toLowerCase()) {
-          case "v":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            frame.ownerDocument.defaultView?.focus()
-            onActivateTool("pan")
-            break
-          case "i":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            break
-          case "escape":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            onClearInspection()
-            break
-          case " ":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            onSpacePanning(true)
-            break
-          default:
-            blockAction(event)
+      const abortMiddlePan = (): void => {
+        const current = middlePan.current
+        if (current !== undefined) {
+          endMiddlePan(current.pointerId, true)
         }
       }
 
-      const onKeyUp = (event: KeyboardEvent): void => {
-        if (event.key === " ") {
-          onSpacePanning(false)
+      const onVisibilityChange = (): void => {
+        if (overlayDocument.visibilityState !== "visible") {
+          abortMiddlePan()
         }
-        blockAction(event)
       }
 
-      document.addEventListener("pointerover", onPointerOver, true)
-      document.addEventListener("pointerout", onPointerOut, true)
-      document.addEventListener("pointerdown", onPointerDown, true)
-      document.addEventListener("pointermove", onPointerMove, true)
-      document.addEventListener("pointerup", onPointerUp, true)
-      document.addEventListener("pointercancel", onPointerUp, true)
-      document.addEventListener("click", blockAction, true)
-      document.addEventListener("auxclick", blockAction, true)
-      document.addEventListener("dblclick", blockAction, true)
-      document.addEventListener("contextmenu", blockAction, true)
-      document.addEventListener("submit", blockAction, true)
-      document.addEventListener("wheel", onWheel, { capture: true, passive: false })
-      document.addEventListener("keydown", onKeyDown, true)
-      document.addEventListener("keyup", onKeyUp, true)
+      interactionSurface.addEventListener("pointermove", onPointerMove)
+      interactionSurface.addEventListener("pointerleave", onPointerLeave)
+      interactionSurface.addEventListener("pointerdown", onPointerDown)
+      interactionSurface.addEventListener("pointerup", onPointerUp)
+      interactionSurface.addEventListener("pointercancel", onPointerCancel)
+      interactionSurface.addEventListener("click", blockAction)
+      interactionSurface.addEventListener("auxclick", blockAction)
+      interactionSurface.addEventListener("dblclick", blockAction)
+      interactionSurface.addEventListener("contextmenu", blockAction)
+      overlayWindow?.addEventListener("blur", abortMiddlePan)
+      overlayDocument.addEventListener("visibilitychange", onVisibilityChange)
 
       disconnectInspector.current = () => {
-        document.removeEventListener("pointerover", onPointerOver, true)
-        document.removeEventListener("pointerout", onPointerOut, true)
-        document.removeEventListener("pointerdown", onPointerDown, true)
-        document.removeEventListener("pointermove", onPointerMove, true)
-        document.removeEventListener("pointerup", onPointerUp, true)
-        document.removeEventListener("pointercancel", onPointerUp, true)
-        document.removeEventListener("click", blockAction, true)
-        document.removeEventListener("auxclick", blockAction, true)
-        document.removeEventListener("dblclick", blockAction, true)
-        document.removeEventListener("contextmenu", blockAction, true)
-        document.removeEventListener("submit", blockAction, true)
-        document.removeEventListener("wheel", onWheel, true)
-        document.removeEventListener("keydown", onKeyDown, true)
-        document.removeEventListener("keyup", onKeyUp, true)
+        interactionSurface.removeEventListener("pointermove", onPointerMove)
+        interactionSurface.removeEventListener("pointerleave", onPointerLeave)
+        interactionSurface.removeEventListener("pointerdown", onPointerDown)
+        interactionSurface.removeEventListener("pointerup", onPointerUp)
+        interactionSurface.removeEventListener("pointercancel", onPointerCancel)
+        interactionSurface.removeEventListener("click", blockAction)
+        interactionSurface.removeEventListener("auxclick", blockAction)
+        interactionSurface.removeEventListener("dblclick", blockAction)
+        interactionSurface.removeEventListener("contextmenu", blockAction)
+        overlayWindow?.removeEventListener("blur", abortMiddlePan)
+        overlayDocument.removeEventListener("visibilitychange", onVisibilityChange)
         if (overlayFrame !== undefined) {
           overlayWindow?.cancelAnimationFrame(overlayFrame)
         }
-        style.remove()
         const currentPan = middlePan.current
         if (currentPan !== undefined) {
           endMiddlePan(currentPan.pointerId, true)
@@ -475,20 +422,13 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         disconnectInspector.current = () => undefined
       }
     },
-    [
-      clearMarkers,
-      inspecting,
-      onActivateTool,
-      onClearInspection,
-      onInspect,
-      onInvalidate,
-      onPanEnd,
-      onPanMove,
-      onPanStart,
-      onSpacePanning,
-      route,
-    ],
+    [clearMarkers, inspecting, onInspect, onInvalidate, onPanEnd, onPanMove, onPanStart, route],
   )
+
+  useEffect(() => {
+    data.onRegisterSelectionClear(route, clearSelection)
+    return () => data.onRegisterSelectionClear(route, undefined)
+  }, [clearSelection, data, route])
 
   useEffect(() => {
     const frame = frameRef.current
@@ -499,8 +439,13 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   }, [connectInspector])
 
   useEffect(() => {
-    clearMarkers()
-  }, [clearMarkers, data.clearInspection])
+    if (data.selectedRoute !== route) {
+      selectedElement.current = undefined
+      hitElement.current = undefined
+      lastInspectionClick.current = undefined
+      updateOverlays.current()
+    }
+  }, [data.selectedRoute, data.selectionGeneration, route])
 
   useEffect(
     () => () => {
@@ -531,6 +476,12 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         tabIndex={-1}
         title={data.route}
       />
+      <div
+        aria-hidden="true"
+        className="page-frame__interaction-surface"
+        ref={interactionSurfaceRef}
+        style={{ height: data.contentHeight }}
+      />
     </article>
   )
 })
@@ -545,7 +496,7 @@ const Designer = () => {
   const [tool, setTool] = useState<DesignerTool>("pan")
   const [spacePanning, setSpacePanning] = useState(false)
   const [inspection, setInspection] = useState<InspectedElement | undefined>(undefined)
-  const [clearInspection, setClearInspection] = useState(0)
+  const [selectionGeneration, setSelectionGeneration] = useState(0)
   const flow = useRef<ReactFlowInstance<PageNode> | undefined>(undefined)
   const iframePan = useRef<
     | {
@@ -555,6 +506,7 @@ const Designer = () => {
     | undefined
   >(undefined)
   const fittedRoutes = useRef("")
+  const selectionClears = useRef(new Map<string, () => void>())
 
   useEffect(() => {
     let stopped = false
@@ -601,10 +553,38 @@ const Designer = () => {
     setHeights((current) => (current[route] === height ? current : { ...current, [route]: height }))
   }, [])
 
-  const clearSelectedElement = useCallback((): void => {
-    setInspection(undefined)
-    setClearInspection((current) => current + 1)
+  const clearAllFrameSelections = useCallback((): void => {
+    for (const clear of selectionClears.current.values()) {
+      clear()
+    }
   }, [])
+
+  const clearSelectedElement = useCallback((): void => {
+    clearAllFrameSelections()
+    setInspection(undefined)
+    setSelectionGeneration((current) => current + 1)
+  }, [clearAllFrameSelections])
+
+  const inspectElement = useCallback(
+    (nextInspection: InspectedElement, select: () => void): void => {
+      clearAllFrameSelections()
+      select()
+      setInspection(nextInspection)
+      setSelectionGeneration((current) => current + 1)
+    },
+    [clearAllFrameSelections],
+  )
+
+  const registerSelectionClear = useCallback(
+    (route: string, clear: (() => void) | undefined): void => {
+      if (clear === undefined) {
+        selectionClears.current.delete(route)
+      } else {
+        selectionClears.current.set(route, clear)
+      }
+    },
+    [],
+  )
 
   const activateTool = useCallback(
     (nextTool: DesignerTool): void => {
@@ -619,6 +599,7 @@ const Designer = () => {
 
   const invalidateInspection = useCallback((route: string): void => {
     setInspection((current) => (current?.route === route ? undefined : current))
+    setSelectionGeneration((current) => current + 1)
   }, [])
 
   const startViewportPan = useCallback((pointer: { x: number; y: number }): void => {
@@ -688,16 +669,30 @@ const Designer = () => {
       }
     }
 
-    const onBlur = (): void => setSpacePanning(false)
+    const resetTemporaryPan = (): void => setSpacePanning(false)
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState !== "visible") {
+        resetTemporaryPan()
+      }
+    }
     window.addEventListener("keydown", onKeyDown)
     window.addEventListener("keyup", onKeyUp)
-    window.addEventListener("blur", onBlur)
+    window.addEventListener("blur", resetTemporaryPan)
+    document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
       window.removeEventListener("keydown", onKeyDown)
       window.removeEventListener("keyup", onKeyUp)
-      window.removeEventListener("blur", onBlur)
+      window.removeEventListener("blur", resetTemporaryPan)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      resetTemporaryPan()
     }
   }, [activateTool, clearSelectedElement, tool])
+
+  useEffect(() => {
+    if (inspection !== undefined && !routes.some(({ route }) => route === inspection.route)) {
+      clearSelectedElement()
+    }
+  }, [clearSelectedElement, inspection, routes])
 
   const nodes = useMemo<PageNode[]>(() => {
     const positioned = layoutDesignRoutes(
@@ -712,20 +707,19 @@ const Designer = () => {
       type: "page",
       position,
       data: {
-        clearInspection,
         contentHeight: height,
         inspecting: tool === "inspect",
         interactive: tool === "inspect" && !spacePanning,
-        onActivateTool: activateTool,
-        onClearInspection: clearSelectedElement,
         onHeight,
-        onInspect: setInspection,
+        onInspect: inspectElement,
         onInvalidate: invalidateInspection,
         onPanEnd: endViewportPan,
         onPanMove: moveViewportPan,
         onPanStart: startViewportPan,
-        onSpacePanning: setSpacePanning,
+        onRegisterSelectionClear: registerSelectionClear,
         route,
+        selectedRoute: inspection?.route,
+        selectionGeneration,
       },
       draggable: false,
       height: height + frameHeaderHeight,
@@ -733,15 +727,16 @@ const Designer = () => {
       width: frameWidth,
     }))
   }, [
-    activateTool,
-    clearInspection,
-    clearSelectedElement,
     endViewportPan,
     heights,
+    inspectElement,
+    inspection?.route,
     invalidateInspection,
     moveViewportPan,
     onHeight,
     routes,
+    registerSelectionClear,
+    selectionGeneration,
     spacePanning,
     startViewportPan,
     tool,
