@@ -1,5 +1,6 @@
 import { Background, BackgroundVariant, Controls, ReactFlow } from "@xyflow/react"
 import type { Node, NodeProps, NodeTypes, ReactFlowInstance } from "@xyflow/react"
+import { Hand, MousePointer2 } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { frameHeaderHeight, frameWidth, initialFrameHeight, layoutDesignRoutes } from "./layout"
@@ -29,6 +30,7 @@ interface PageNodeData extends Record<string, unknown> {
   onHeight: (route: string, height: number) => void
   onInspect: (inspection: InspectedElement) => void
   onInvalidate: (route: string) => void
+  onPan: (delta: { x: number; y: number }) => void
   onSpacePanning: (active: boolean) => void
   route: string
 }
@@ -82,17 +84,21 @@ const documentHeight = (document: Document): number => {
 }
 
 const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
-  const { inspecting, onActivateTool, onClearInspection, onInspect, onSpacePanning, route } = data
+  const { inspecting, onActivateTool, onClearInspection, onInspect, onPan, onSpacePanning, route } =
+    data
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
   const hoveredElement = useRef<Element | undefined>(undefined)
+  const hitElement = useRef<Element | undefined>(undefined)
   const selectedElement = useRef<Element | undefined>(undefined)
+  const middlePan = useRef<{ pointerId: number; x: number; y: number } | undefined>(undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
 
   const clearMarkers = useCallback((): void => {
     hoveredElement.current?.removeAttribute(hoverAttribute)
     selectedElement.current?.removeAttribute(selectedAttribute)
     hoveredElement.current = undefined
+    hitElement.current = undefined
     selectedElement.current = undefined
   }, [])
 
@@ -161,23 +167,57 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         event.preventDefault()
         event.stopImmediatePropagation()
 
-        if (event.button !== 0) {
+        const element = eventElement(event, document)
+        if (event.button === 1) {
+          middlePan.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+          element?.setPointerCapture(event.pointerId)
           return
         }
-        const element = eventElement(event, document)
-        if (element === undefined) {
+        if (event.button !== 0 || element === undefined) {
           return
         }
 
+        const nextSelection =
+          hitElement.current === element && selectedElement.current !== undefined
+            ? (selectedElement.current.parentElement ?? selectedElement.current)
+            : element
+
         selectedElement.current?.removeAttribute(selectedAttribute)
-        selectedElement.current = element
-        element.setAttribute(selectedAttribute, "")
-        onInspect({ className: element.getAttribute("class") ?? "", route })
+        hitElement.current = element
+        selectedElement.current = nextSelection
+        nextSelection.setAttribute(selectedAttribute, "")
+        onInspect({ className: nextSelection.getAttribute("class") ?? "", route })
       }
 
       const blockAction = (event: Event): void => {
         event.preventDefault()
         event.stopImmediatePropagation()
+      }
+
+      const onPointerMove = (event: PointerEvent): void => {
+        const current = middlePan.current
+        if (current === undefined || current.pointerId !== event.pointerId) {
+          return
+        }
+
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        const frameBounds = frame.getBoundingClientRect()
+        const scale = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
+        onPan({ x: (event.clientX - current.x) * scale, y: (event.clientY - current.y) * scale })
+        middlePan.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+      }
+
+      const onPointerUp = (event: PointerEvent): void => {
+        const current = middlePan.current
+        if (current !== undefined && current.pointerId === event.pointerId) {
+          const element = eventElement(event, document)
+          if (element?.hasPointerCapture(event.pointerId)) {
+            element.releasePointerCapture(event.pointerId)
+          }
+          middlePan.current = undefined
+        }
+        blockAction(event)
       }
 
       const onWheel = (event: WheelEvent): void => {
@@ -244,8 +284,11 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       document.addEventListener("pointerover", onPointerOver, true)
       document.addEventListener("pointerout", onPointerOut, true)
       document.addEventListener("pointerdown", onPointerDown, true)
-      document.addEventListener("pointerup", blockAction, true)
+      document.addEventListener("pointermove", onPointerMove, true)
+      document.addEventListener("pointerup", onPointerUp, true)
+      document.addEventListener("pointercancel", onPointerUp, true)
       document.addEventListener("click", blockAction, true)
+      document.addEventListener("auxclick", blockAction, true)
       document.addEventListener("dblclick", blockAction, true)
       document.addEventListener("contextmenu", blockAction, true)
       document.addEventListener("submit", blockAction, true)
@@ -257,8 +300,11 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         document.removeEventListener("pointerover", onPointerOver, true)
         document.removeEventListener("pointerout", onPointerOut, true)
         document.removeEventListener("pointerdown", onPointerDown, true)
-        document.removeEventListener("pointerup", blockAction, true)
+        document.removeEventListener("pointermove", onPointerMove, true)
+        document.removeEventListener("pointerup", onPointerUp, true)
+        document.removeEventListener("pointercancel", onPointerUp, true)
         document.removeEventListener("click", blockAction, true)
+        document.removeEventListener("auxclick", blockAction, true)
         document.removeEventListener("dblclick", blockAction, true)
         document.removeEventListener("contextmenu", blockAction, true)
         document.removeEventListener("submit", blockAction, true)
@@ -266,11 +312,21 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         document.removeEventListener("keydown", onKeyDown, true)
         document.removeEventListener("keyup", onKeyUp, true)
         style.remove()
+        middlePan.current = undefined
         clearMarkers()
         disconnectInspector.current = () => undefined
       }
     },
-    [clearMarkers, inspecting, onActivateTool, onClearInspection, onInspect, onSpacePanning, route],
+    [
+      clearMarkers,
+      inspecting,
+      onActivateTool,
+      onClearInspection,
+      onInspect,
+      onPan,
+      onSpacePanning,
+      route,
+    ],
   )
 
   useEffect(() => {
@@ -397,6 +453,19 @@ const Designer = () => {
     setInspection((current) => (current?.route === route ? undefined : current))
   }, [])
 
+  const panViewport = useCallback((delta: { x: number; y: number }): void => {
+    const instance = flow.current
+    if (instance === undefined) {
+      return
+    }
+    const viewport = instance.getViewport()
+    void instance.setViewport({
+      x: viewport.x + delta.x,
+      y: viewport.y + delta.y,
+      zoom: viewport.zoom,
+    })
+  }, [])
+
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null): boolean =>
       target instanceof HTMLElement &&
@@ -470,6 +539,7 @@ const Designer = () => {
         onHeight,
         onInspect: setInspection,
         onInvalidate: invalidateInspection,
+        onPan: panViewport,
         onSpacePanning: setSpacePanning,
         route,
       },
@@ -485,6 +555,7 @@ const Designer = () => {
     heights,
     invalidateInspection,
     onHeight,
+    panViewport,
     routes,
     spacePanning,
     tool,
@@ -529,7 +600,7 @@ const Designer = () => {
         onInit={(instance) => {
           flow.current = instance
         }}
-        panOnDrag={tool === "pan" || spacePanning}
+        panOnDrag={tool === "pan" || spacePanning ? [0, 1] : [1]}
         panOnScroll
         preventScrolling
         zoomOnDoubleClick={false}
@@ -546,9 +617,7 @@ const Designer = () => {
           title="Pan (V)"
           type="button"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="M7 11V7a2 2 0 0 1 4 0v3-5a2 2 0 0 1 4 0v5-3a2 2 0 0 1 4 0v7c0 4.4-3.6 8-8 8h-1.2a8 8 0 0 1-6.4-3.2L1.8 16a2 2 0 0 1 3-2.6L7 15.2V11Z" />
-          </svg>
+          <Hand aria-hidden="true" />
         </button>
         <button
           aria-label="Inspect tool (I)"
@@ -558,9 +627,7 @@ const Designer = () => {
           title="Inspect (I)"
           type="button"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="m5 3 14 8-6 2-2 6L5 3Z" />
-          </svg>
+          <MousePointer2 aria-hidden="true" />
         </button>
       </nav>
       {inspection === undefined ? null : (
