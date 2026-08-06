@@ -171,6 +171,21 @@ test("pans by default and inspects iframe elements without activating them", asy
     )
     .toBe(true)
 
+  await page.waitForTimeout(550)
+  await heading.click({ force: true })
+  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
+
+  await heading.click({ force: true })
+  await expect(inspector).toHaveText(parentClassName)
+
+  const body = site.locator("body")
+  await body.dispatchEvent("pointerdown", { button: 0, pointerId: 1 })
+  await expect(body).toHaveAttribute("data-splatpad-inspector-selected", "")
+  await expect
+    .poll(() => body.evaluate((element) => globalThis.getComputedStyle(element).boxShadow))
+    .toContain("inset")
+
   await page.keyboard.press("Escape")
   await expect(inspector).toHaveCount(0)
   await expect(heading).not.toHaveAttribute("data-splatpad-inspector-selected", "")

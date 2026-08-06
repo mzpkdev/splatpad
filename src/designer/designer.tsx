@@ -40,6 +40,7 @@ type PageNode = Node<PageNodeData, "page">
 const hoverAttribute = "data-splatpad-inspector-hover"
 const selectedAttribute = "data-splatpad-inspector-selected"
 const inspectorStyleId = "splatpad-inspector-styles"
+const inspectionClickStreakMs = 500
 
 const eventElement = (event: Event, document: Document): Element | undefined => {
   const ElementConstructor = document.defaultView?.Element
@@ -59,12 +60,10 @@ const installInspectorStyles = (document: Document): HTMLStyleElement => {
   style.textContent = `
     * { cursor: crosshair !important; }
     [${hoverAttribute}] {
-      outline: 2px solid #2563eb !important;
-      outline-offset: -2px !important;
+      box-shadow: inset 0 0 0 2px #2563eb !important;
     }
     [${selectedAttribute}] {
-      outline: 2px solid #7c3aed !important;
-      outline-offset: -2px !important;
+      box-shadow: inset 0 0 0 2px #7c3aed !important;
     }
   `
   document.head.append(style)
@@ -90,6 +89,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const measurementFrame = useRef<number | undefined>(undefined)
   const hoveredElement = useRef<Element | undefined>(undefined)
   const hitElement = useRef<Element | undefined>(undefined)
+  const lastInspectionClick = useRef<number | undefined>(undefined)
   const selectedElement = useRef<Element | undefined>(undefined)
   const middlePan = useRef<{ pointerId: number; x: number; y: number } | undefined>(undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
@@ -99,6 +99,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     selectedElement.current?.removeAttribute(selectedAttribute)
     hoveredElement.current = undefined
     hitElement.current = undefined
+    lastInspectionClick.current = undefined
     selectedElement.current = undefined
   }, [])
 
@@ -177,13 +178,20 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           return
         }
 
+        const currentSelection = selectedElement.current
+        const continuesClickStreak =
+          hitElement.current === element &&
+          currentSelection !== undefined &&
+          lastInspectionClick.current !== undefined &&
+          event.timeStamp - lastInspectionClick.current <= inspectionClickStreakMs
         const nextSelection =
-          hitElement.current === element && selectedElement.current !== undefined
-            ? (selectedElement.current.parentElement ?? selectedElement.current)
+          continuesClickStreak && currentSelection !== undefined
+            ? (currentSelection.parentElement ?? currentSelection)
             : element
 
         selectedElement.current?.removeAttribute(selectedAttribute)
         hitElement.current = element
+        lastInspectionClick.current = event.timeStamp
         selectedElement.current = nextSelection
         nextSelection.setAttribute(selectedAttribute, "")
         onInspect({ className: nextSelection.getAttribute("class") ?? "", route })
