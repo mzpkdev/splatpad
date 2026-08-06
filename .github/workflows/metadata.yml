@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint
+    name: Metadata
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
