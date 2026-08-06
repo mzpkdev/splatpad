@@ -92,6 +92,76 @@ test("pans by default and inspects iframe elements without activating them", asy
   const site = page.frameLocator('iframe[title="/menu/"]')
   const heading = site.getByRole("heading", { level: 1 })
   const inspector = page.getByRole("complementary", { name: "Element inspector" })
+  const overlaySnapshot = async (kind: "hover" | "selected", targetSelector: string) =>
+    page
+      .locator(
+        `[data-splatpad-inspector-overlay="${kind}"][data-splatpad-inspector-route="/menu/"]`,
+      )
+      .evaluate((overlay, selector) => {
+        const frame =
+          overlay.ownerDocument.querySelector<HTMLIFrameElement>('iframe[title="/menu/"]')
+        const target = frame?.contentDocument?.querySelector(selector)
+        if (frame === null || frame === undefined || target === null || target === undefined) {
+          throw new Error("Expected the preview frame and inspected target")
+        }
+
+        const frameBounds = frame.getBoundingClientRect()
+        const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
+        const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
+        const frameLeft = frameBounds.left + frame.clientLeft * scaleX
+        const frameTop = frameBounds.top + frame.clientTop * scaleY
+        const targetBounds = target.getBoundingClientRect()
+        const viewportWidth = frame.contentDocument?.documentElement.clientWidth ?? 0
+        const viewportHeight = frame.contentDocument?.documentElement.clientHeight ?? 0
+        const expected = {
+          bottom: frameTop + Math.max(0, Math.min(viewportHeight, targetBounds.bottom)) * scaleY,
+          left: frameLeft + Math.max(0, Math.min(viewportWidth, targetBounds.left)) * scaleX,
+          right: frameLeft + Math.max(0, Math.min(viewportWidth, targetBounds.right)) * scaleX,
+          top: frameTop + Math.max(0, Math.min(viewportHeight, targetBounds.top)) * scaleY,
+        }
+        const bounds = overlay.getBoundingClientRect()
+        const style = globalThis.getComputedStyle(overlay)
+        return {
+          alignmentGaps: [
+            Math.abs(bounds.top - expected.top) < 0.05
+              ? 0
+              : Math.round((bounds.top - expected.top) * 10) / 10,
+            Math.abs(bounds.right - expected.right) < 0.05
+              ? 0
+              : Math.round((bounds.right - expected.right) * 10) / 10,
+            Math.abs(bounds.bottom - expected.bottom) < 0.05
+              ? 0
+              : Math.round((bounds.bottom - expected.bottom) * 10) / 10,
+            Math.abs(bounds.left - expected.left) < 0.05
+              ? 0
+              : Math.round((bounds.left - expected.left) * 10) / 10,
+          ],
+          borderColor: style.borderTopColor,
+          borderStyles: [
+            style.borderTopStyle,
+            style.borderRightStyle,
+            style.borderBottomStyle,
+            style.borderLeftStyle,
+          ],
+          borderWidths: [
+            style.borderTopWidth,
+            style.borderRightWidth,
+            style.borderBottomWidth,
+            style.borderLeftWidth,
+          ],
+          display: style.display,
+          margin: style.margin,
+          ownerIsDesigner: overlay.ownerDocument === frame.ownerDocument,
+          pointerEvents: style.pointerEvents,
+          transform: style.transform,
+          withinFrame:
+            bounds.top >= frameTop - 0.1 &&
+            bounds.right <= frameLeft + viewportWidth * scaleX + 0.1 &&
+            bounds.bottom <= frameTop + viewportHeight * scaleY + 0.1 &&
+            bounds.left >= frameLeft - 0.1,
+          zIndex: style.zIndex,
+        }
+      }, targetSelector)
 
   await expect(panTool).toHaveAttribute("aria-pressed", "true")
   await expect(panTool.locator("svg.lucide-hand")).toHaveCount(1)
@@ -105,12 +175,50 @@ test("pans by default and inspects iframe elements without activating them", asy
   await expect(site.locator("#splatpad-inspector-styles")).toHaveCount(1)
   await expect(inspector).toHaveCount(0)
 
+  await site.locator("head").evaluate((head) => {
+    const style = head.ownerDocument.createElement("style")
+    style.textContent = `
+      html {
+        filter: opacity(.999);
+        transform: translate(23px, 29px) scale(.97);
+        transform-origin: 0 0;
+      }
+      [aria-hidden="true"] { display: none !important; }
+      div {
+        border: 11px dashed red !important;
+        box-sizing: content-box !important;
+        height: 13px !important;
+        margin: 17px !important;
+        padding: 19px !important;
+        transform: translate(23px, 29px) !important;
+        width: 31px !important;
+      }
+    `
+    head.append(style)
+  })
+
   await expect
     .poll(async () => {
       await heading.hover({ force: true })
       return heading.getAttribute("data-splatpad-inspector-hover")
     })
     .toBe("")
+  await expect(site.locator('[data-splatpad-inspector-overlay="hover"]')).toHaveCount(0)
+  await expect
+    .poll(() => overlaySnapshot("hover", "h1"))
+    .toEqual({
+      alignmentGaps: [0, 0, 0, 0],
+      borderColor: "rgb(37, 99, 235)",
+      borderStyles: ["solid", "solid", "solid", "solid"],
+      borderWidths: ["2px", "2px", "2px", "2px"],
+      display: "block",
+      margin: "0px",
+      ownerIsDesigner: true,
+      pointerEvents: "none",
+      transform: "none",
+      withinFrame: true,
+      zIndex: "2147483646",
+    })
   const viewport = page.locator(".react-flow__viewport")
   const viewportBeforeWheel = await viewport.evaluate(
     (element) => globalThis.getComputedStyle(element).transform,
@@ -120,10 +228,343 @@ test("pans by default and inspects iframe elements without activating them", asy
     .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
     .not.toBe(viewportBeforeWheel)
 
+  const headingClassName = await heading.getAttribute("class")
+  const parentClassName = await heading.evaluate(
+    (element) => element.parentElement?.getAttribute("class") ?? "",
+  )
+  await heading.click({ force: true })
+  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
+  await expect(inspector).toHaveCSS("top", "16px")
+  await expect(inspector).toHaveCSS("bottom", "16px")
+  await expect
+    .poll(() => overlaySnapshot("selected", "h1"))
+    .toEqual({
+      alignmentGaps: [0, 0, 0, 0],
+      borderColor: "rgb(124, 58, 237)",
+      borderStyles: ["solid", "solid", "solid", "solid"],
+      borderWidths: ["2px", "2px", "2px", "2px"],
+      display: "block",
+      margin: "0px",
+      ownerIsDesigner: true,
+      pointerEvents: "none",
+      transform: "none",
+      withinFrame: true,
+      zIndex: "2147483647",
+    })
+
+  const selectedOverlay = page.locator(
+    '[data-splatpad-inspector-overlay="selected"][data-splatpad-inspector-route="/menu/"]',
+  )
+  const selectedBoundsBeforeMovement = await selectedOverlay.boundingBox()
+  await heading.evaluate((element) => {
+    const target = element as HTMLElement
+    target.style.setProperty("left", "61px", "important")
+    target.style.setProperty("position", "relative", "important")
+    target.style.setProperty("top", "37px", "important")
+  })
+  await expect
+    .poll(() => overlaySnapshot("selected", "h1"))
+    .toMatchObject({
+      alignmentGaps: [0, 0, 0, 0],
+    })
+  await expect
+    .poll(async () => {
+      const movedBounds = await selectedOverlay.boundingBox()
+      return (
+        (movedBounds?.x ?? 0) > (selectedBoundsBeforeMovement?.x ?? 0) + 1 &&
+        (movedBounds?.y ?? 0) > (selectedBoundsBeforeMovement?.y ?? 0) + 1
+      )
+    })
+    .toBe(true)
+  await heading.evaluate((element) => {
+    const target = element as HTMLElement
+    target.style.removeProperty("left")
+    target.style.removeProperty("position")
+    target.style.removeProperty("top")
+  })
+  await expect
+    .poll(() => overlaySnapshot("selected", "h1"))
+    .toMatchObject({
+      alignmentGaps: [0, 0, 0, 0],
+    })
+
+  const disconnectedTarget = site.locator("#disconnected-inspection-target")
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "disconnected-inspection-target"
+    target.className = "disconnected-selection"
+    target.textContent = "Temporary target"
+    body.append(target)
+  })
+  await disconnectedTarget.hover({ force: true })
+  await disconnectedTarget.click({ force: true })
+  await expect(inspector).toHaveText("disconnected-selection")
+  await expect(selectedOverlay).toHaveCSS("display", "block")
+  await disconnectedTarget.evaluate((element) => element.remove())
+  await expect(inspector).toHaveCount(0)
+  await expect(selectedOverlay).toHaveCSS("display", "none")
+  await heading.hover({ force: true })
+  await expect(heading).toHaveAttribute("data-splatpad-inspector-hover", "")
+  await expect.poll(() => overlaySnapshot("hover", "h1")).toMatchObject({ display: "block" })
+  await heading.click({ force: true })
+  await expect(inspector).toHaveText(headingClassName ?? "")
+
+  const viewportBeforeFailedCapture = await viewport.evaluate(
+    (element) => globalThis.getComputedStyle(element).transform,
+  )
+  await heading.evaluate((element) => {
+    const document = element.ownerDocument
+    const view = document.defaultView
+    if (view === null) {
+      throw new Error("Expected the heading document to have a window")
+    }
+
+    const capture = element as Element & {
+      setPointerCapture: (pointerId: number) => void
+    }
+    const setPointerCapture = capture.setPointerCapture
+    capture.setPointerCapture = () => {
+      throw new DOMException("Synthetic pointer capture failure", "InvalidStateError")
+    }
+    const bounds = element.getBoundingClientRect()
+    const clientX = bounds.left + bounds.width / 2
+    const clientY = bounds.top + bounds.height / 2
+
+    try {
+      element.dispatchEvent(
+        new view.PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 1,
+          buttons: 4,
+          cancelable: true,
+          clientX,
+          clientY,
+          pointerId: 4141,
+        }),
+      )
+      element.dispatchEvent(
+        new view.PointerEvent("pointermove", {
+          bubbles: true,
+          button: -1,
+          buttons: 4,
+          cancelable: true,
+          clientX: clientX + 50,
+          clientY: clientY + 50,
+          pointerId: 4141,
+        }),
+      )
+      element.dispatchEvent(
+        new view.PointerEvent("pointerup", {
+          bubbles: true,
+          button: 1,
+          cancelable: true,
+          clientX: clientX + 50,
+          clientY: clientY + 50,
+          pointerId: 4141,
+        }),
+      )
+    } finally {
+      capture.setPointerCapture = setPointerCapture
+    }
+  })
+  await expect
+    .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
+    .toBe(viewportBeforeFailedCapture)
+
+  const viewportBeforeControlledPan = await viewport.evaluate((element) => {
+    const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
+    return { x: transform.m41, y: transform.m42 }
+  })
+  await heading.evaluate((element) => {
+    const document = element.ownerDocument
+    const view = document.defaultView
+    const frameElement = view?.frameElement
+    if (frameElement?.tagName !== "IFRAME" || view === null) {
+      throw new Error("Expected the heading to be inside an iframe")
+    }
+    const frame = frameElement as HTMLIFrameElement
+
+    const frameBounds = frame.getBoundingClientRect()
+    const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
+    const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
+    const bounds = element.getBoundingClientRect()
+    const clientX = bounds.left + bounds.width / 2
+    const clientY = bounds.top + bounds.height / 2
+    const capture = element as Element & {
+      hasPointerCapture: (pointerId: number) => boolean
+      releasePointerCapture: (pointerId: number) => void
+      setPointerCapture: (pointerId: number) => void
+    }
+    const methods = {
+      hasPointerCapture: capture.hasPointerCapture,
+      releasePointerCapture: capture.releasePointerCapture,
+      setPointerCapture: capture.setPointerCapture,
+    }
+    capture.setPointerCapture = () => undefined
+    capture.hasPointerCapture = () => false
+    capture.releasePointerCapture = () => undefined
+
+    try {
+      element.dispatchEvent(
+        new view.PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 1,
+          buttons: 4,
+          cancelable: true,
+          clientX,
+          clientY,
+          pointerId: 4242,
+          screenX: 500_000,
+          screenY: -500_000,
+        }),
+      )
+      element.dispatchEvent(
+        new view.PointerEvent("pointermove", {
+          bubbles: true,
+          button: -1,
+          buttons: 4,
+          cancelable: true,
+          clientX: clientX + 18 / scaleX,
+          clientY: clientY + 12 / scaleY,
+          pointerId: 4242,
+          screenX: -500_000,
+          screenY: 500_000,
+        }),
+      )
+      element.dispatchEvent(
+        new view.PointerEvent("pointerup", {
+          bubbles: true,
+          button: 1,
+          cancelable: true,
+          clientX: clientX + 18 / scaleX,
+          clientY: clientY + 12 / scaleY,
+          pointerId: 4242,
+          screenX: 250_000,
+          screenY: 250_000,
+        }),
+      )
+    } finally {
+      capture.setPointerCapture = methods.setPointerCapture
+      capture.hasPointerCapture = methods.hasPointerCapture
+      capture.releasePointerCapture = methods.releasePointerCapture
+    }
+  })
+  await expect
+    .poll(async () => {
+      const transform = await viewport.evaluate((element) => {
+        const matrix = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
+        return { x: matrix.m41, y: matrix.m42 }
+      })
+      return {
+        x: Math.round(transform.x - viewportBeforeControlledPan.x),
+        y: Math.round(transform.y - viewportBeforeControlledPan.y),
+      }
+    })
+    .toEqual({ x: 18, y: 12 })
+  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
+
+  const viewportBeforeCaptureLoss = await viewport.evaluate((element) => {
+    const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
+    return { x: transform.m41, y: transform.m42 }
+  })
+  await site.locator("body").evaluate((body) => {
+    const document = body.ownerDocument
+    const view = document.defaultView
+    const frameElement = view?.frameElement
+    if (frameElement?.tagName !== "IFRAME" || view === null) {
+      throw new Error("Expected the temporary target to be inside an iframe")
+    }
+    const frame = frameElement as HTMLIFrameElement
+    const target = document.createElement("button")
+    target.textContent = "Capture target"
+    body.append(target)
+
+    const frameBounds = frame.getBoundingClientRect()
+    const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
+    const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
+    const capture = target as Element & {
+      hasPointerCapture: (pointerId: number) => boolean
+      releasePointerCapture: (pointerId: number) => void
+      setPointerCapture: (pointerId: number) => void
+    }
+    capture.setPointerCapture = () => undefined
+    capture.hasPointerCapture = () => false
+    capture.releasePointerCapture = () => undefined
+    const pointerId = 4343
+
+    target.dispatchEvent(
+      new view.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 1,
+        buttons: 4,
+        cancelable: true,
+        clientX: 20,
+        clientY: 20,
+        pointerId,
+      }),
+    )
+    document.dispatchEvent(
+      new view.PointerEvent("pointermove", {
+        bubbles: true,
+        button: -1,
+        buttons: 4,
+        cancelable: true,
+        clientX: 20 + 13 / scaleX,
+        clientY: 20 + 9 / scaleY,
+        pointerId,
+      }),
+    )
+    target.remove()
+    target.dispatchEvent(
+      new view.PointerEvent("lostpointercapture", {
+        bubbles: true,
+        pointerId,
+      }),
+    )
+    document.dispatchEvent(
+      new view.PointerEvent("pointermove", {
+        bubbles: true,
+        button: -1,
+        buttons: 4,
+        cancelable: true,
+        clientX: 20 + 71 / scaleX,
+        clientY: 20 + 63 / scaleY,
+        pointerId,
+      }),
+    )
+    document.dispatchEvent(
+      new view.PointerEvent("pointerup", {
+        bubbles: true,
+        button: 1,
+        cancelable: true,
+        clientX: 20 + 71 / scaleX,
+        clientY: 20 + 63 / scaleY,
+        pointerId,
+      }),
+    )
+  })
+  await expect
+    .poll(async () => {
+      const transform = await viewport.evaluate((element) => {
+        const matrix = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
+        return { x: matrix.m41, y: matrix.m42 }
+      })
+      return {
+        x: Math.round(transform.x - viewportBeforeCaptureLoss.x),
+        y: Math.round(transform.y - viewportBeforeCaptureLoss.y),
+      }
+    })
+    .toEqual({ x: 13, y: 9 })
+
   const viewportBeforeMiddlePan = await viewport.evaluate((element) => {
     const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
     return { x: transform.m41, y: transform.m42 }
   })
+  expect(Math.abs(viewportBeforeMiddlePan.x) + Math.abs(viewportBeforeMiddlePan.y)).toBeGreaterThan(
+    0,
+  )
   const headingBounds = await heading.boundingBox()
   expect(headingBounds).not.toBeNull()
   await page.mouse.move(
@@ -132,9 +573,9 @@ test("pans by default and inspects iframe elements without activating them", asy
   )
   await page.mouse.down({ button: "middle" })
   await page.mouse.move(
-    (headingBounds?.x ?? 0) + (headingBounds?.width ?? 0) / 2 + 32,
-    (headingBounds?.y ?? 0) + (headingBounds?.height ?? 0) / 2 + 24,
-    { steps: 3 },
+    (headingBounds?.x ?? 0) + (headingBounds?.width ?? 0) / 2 + 96,
+    (headingBounds?.y ?? 0) + (headingBounds?.height ?? 0) / 2 + 72,
+    { steps: 80 },
   )
   await page.mouse.up({ button: "middle" })
   await expect
@@ -148,28 +589,9 @@ test("pans by default and inspects iframe elements without activating them", asy
         y: Math.round(transform.y - viewportBeforeMiddlePan.y),
       }
     })
-    .toEqual({ x: 32, y: 24 })
-  await expect(inspector).toHaveCount(0)
-
-  const headingClassName = await heading.getAttribute("class")
-  const parentClassName = await heading.evaluate(
-    (element) => element.parentElement?.getAttribute("class") ?? "",
-  )
-  await heading.click({ force: true })
+    .toEqual({ x: 96, y: 72 })
   await expect(inspector).toHaveText(headingClassName ?? "")
   await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
-  await expect(inspector).toHaveCSS("top", "16px")
-  await expect(inspector).toHaveCSS("bottom", "16px")
-
-  await heading.click({ force: true })
-  await expect(inspector).toHaveText(parentClassName)
-  await expect
-    .poll(() =>
-      heading.evaluate((element) =>
-        element.parentElement?.hasAttribute("data-splatpad-inspector-selected"),
-      ),
-    )
-    .toBe(true)
 
   await page.waitForTimeout(550)
   await heading.click({ force: true })
@@ -183,8 +605,20 @@ test("pans by default and inspects iframe elements without activating them", asy
   await body.dispatchEvent("pointerdown", { button: 0, pointerId: 1 })
   await expect(body).toHaveAttribute("data-splatpad-inspector-selected", "")
   await expect
-    .poll(() => body.evaluate((element) => globalThis.getComputedStyle(element).boxShadow))
-    .toContain("inset")
+    .poll(() => overlaySnapshot("selected", "body"))
+    .toEqual({
+      alignmentGaps: [0, 0, 0, 0],
+      borderColor: "rgb(124, 58, 237)",
+      borderStyles: ["solid", "solid", "solid", "solid"],
+      borderWidths: ["2px", "2px", "2px", "2px"],
+      display: "block",
+      margin: "0px",
+      ownerIsDesigner: true,
+      pointerEvents: "none",
+      transform: "none",
+      withinFrame: true,
+      zIndex: "2147483647",
+    })
 
   await page.keyboard.press("Escape")
   await expect(inspector).toHaveCount(0)
