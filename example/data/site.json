@@ -1,46 +1,168 @@
 {
   "site": {
-    "name": "Splatpad",
-    "description": "A small proving ground for template-driven websites."
+    "name": "Crumb & Bloom",
+    "description": "A cheerful neighborhood bakery on Alder Street.",
+    "address": "18 Alder Street, Brookside",
+    "hours": "Tuesday–Friday · 7–3\nSaturday–Sunday · 8–2",
+    "hours_short": "Tue–Fri 7–3 · Sat–Sun 8–2"
   },
   "navigation": [
-    {
-      "label": "Home",
-      "href": "/",
-      "current": true
-    },
-    {
-      "label": "Notes",
-      "href": "/notes/",
-      "current": false
-    },
-    {
-      "label": "About",
-      "href": "/about/",
-      "current": false
-    }
+    { "label": "Home", "href": "/" },
+    { "label": "Menu", "href": "/menu/" },
+    { "label": "Story", "href": "/story/" },
+    { "label": "Journal", "href": "/journal/" },
+    { "label": "Visit", "href": "/visit/" }
   ],
-  "page": {
-    "title": "Build small sites from clear inputs",
-    "eyebrow": "LiquidJS + Tailwind syntax",
-    "description": "This fixture exercises layouts, partials, loops, conditions, filters, and utility classes.",
-    "cta": {
-      "label": "Read the notes",
-      "href": "/notes/"
+  "pages": {
+    "/": {
+      "title": "A little joy, baked daily",
+      "eyebrow": "Your Alder Street bakery",
+      "description": "Slow-fermented loaves, sunny pastries, and very good coffee—made for neighbors, morning wanderers, and anyone who saved room for a treat.",
+      "cta": { "label": "See today’s bake", "href": "/menu/" }
+    },
+    "/menu/": {
+      "title": "Today’s bake",
+      "description": "Our everyday favorites, plus a few things inspired by the farms, gardens, and good moods around us."
+    },
+    "/story/": {
+      "title": "Rooted in the neighborhood",
+      "description": "Crumb & Bloom began with a borrowed mixer, a market stall, and the idea that a bakery can feel like the brightest room on the block."
+    },
+    "/journal/": {
+      "title": "Notes from the bakehouse",
+      "description": "Small stories about slow dough, bright fruit, early mornings, and the neighbors who keep our ovens busy."
+    },
+    "/journal/slow-mornings/": {
+      "title": "Why good bread takes the long way",
+      "description": "A loaf spends most of its life waiting. That unhurried time is where the flavor, texture, and character arrive."
+    },
+    "/journal/seasonal-jam/": {
+      "title": "The jam jar follows the weather",
+      "description": "Our pastry case changes when the orchards do. Here’s how a crate of ripe fruit becomes the week’s brightest bake."
+    },
+    "/visit/": {
+      "title": "Come by for something warm",
+      "description": "We’re a five-minute stroll from Alder Park. There’s a sunny window seat, a water bowl for dogs, and usually a loaf with your name on it."
     }
   },
-  "features": [
+  "journal_entries": [
     {
-      "title": "Templates",
-      "description": "Liquid keeps content and structure readable while the toolchain evolves."
+      "title": "Why good bread takes the long way",
+      "excerpt": "Cold nights, patient dough, and the quiet work behind our everyday sourdough.",
+      "href": "/journal/slow-mornings/",
+      "read_time": "4 minute read",
+      "mark": "◒"
     },
     {
-      "title": "Utilities",
-      "description": "Tailwind-compatible classes keep styling close to the markup."
+      "title": "The jam jar follows the weather",
+      "excerpt": "From the first strawberries to late-summer plums, the fruit gets the final say.",
+      "href": "/journal/seasonal-jam/",
+      "read_time": "3 minute read",
+      "mark": "✿"
+    }
+  ],
+  "featured_items": [
+    {
+      "name": "Morning bun",
+      "description": "Orange sugar, cardamom, many buttery layers.",
+      "price": "$5",
+      "mark": "◎",
+      "color": "#f4c95d"
     },
     {
-      "title": "Fixtures",
-      "description": "A stable example gives the compiler something concrete to prove itself against."
+      "name": "Alder sourdough",
+      "description": "Our deeply golden, everyday table loaf.",
+      "price": "$9",
+      "mark": "◒",
+      "color": "#dbe5cb"
+    },
+    {
+      "name": "Jam cloud",
+      "description": "Vanilla cream and whatever fruit looks happiest.",
+      "price": "$6",
+      "mark": "✿",
+      "color": "#f2c8bd"
+    }
+  ],
+  "menu": [
+    {
+      "name": "Bread",
+      "items": [
+        {
+          "name": "Alder sourdough",
+          "description": "Naturally leavened, crackly crust, open crumb.",
+          "price": "$9"
+        },
+        {
+          "name": "Seeded tin loaf",
+          "description": "Oats, flax, sunflower, and a touch of honey.",
+          "price": "$10"
+        },
+        {
+          "name": "Rosemary focaccia",
+          "description": "Olive oil, sea salt, garden rosemary.",
+          "price": "$7"
+        }
+      ]
+    },
+    {
+      "name": "Pastry",
+      "items": [
+        { "name": "Morning bun", "description": "Orange sugar and cardamom.", "price": "$5" },
+        { "name": "Jam cloud", "description": "Vanilla cream and seasonal jam.", "price": "$6" },
+        {
+          "name": "Chocolate rye cookie",
+          "description": "Dark chocolate, rye flour, flaky salt.",
+          "price": "$4"
+        }
+      ]
+    },
+    {
+      "name": "Savory",
+      "items": [
+        {
+          "name": "Garden galette",
+          "description": "Roasted vegetables, herbs, sharp cheddar.",
+          "price": "$8"
+        },
+        {
+          "name": "Egg & greens bun",
+          "description": "Soft egg, lemony greens, sesame bun.",
+          "price": "$9"
+        }
+      ]
+    },
+    {
+      "name": "Drinks",
+      "items": [
+        {
+          "name": "Filter coffee",
+          "description": "Locally roasted, bottomless in-house.",
+          "price": "$4"
+        },
+        {
+          "name": "Honey oat latte",
+          "description": "Espresso, oat milk, neighborhood honey.",
+          "price": "$6"
+        }
+      ]
+    }
+  ],
+  "values": [
+    {
+      "mark": "☼",
+      "title": "Made for today",
+      "description": "Small batches mean the bread is fresh and the menu can follow the season."
+    },
+    {
+      "mark": "♧",
+      "title": "Close to home",
+      "description": "We choose local flour, fruit, dairy, coffee, and collaborators whenever we can."
+    },
+    {
+      "mark": "♡",
+      "title": "Everyone is welcome",
+      "description": "Warm service, fair work, generous tables, and a treat for the dog waiting outside."
     }
   ]
 }

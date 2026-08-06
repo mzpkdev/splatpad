@@ -1,0 +1,33 @@
+{% layout 'base' %}
+
+{% block content %}
+  <main>
+    <section class="mx-auto grid max-w-6xl gap-12 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-2">
+      <div>
+        <p class="text-sm font-bold uppercase tracking-[0.18em] text-[#b14f31]">Our story</p>
+        <h1 class="mt-3 text-5xl font-bold leading-[0.98] tracking-[-0.04em] sm:text-7xl">{{ page.title }}</h1>
+      </div>
+      <div class="self-end text-lg leading-8 text-[#62584f]">
+        <p>{{ page.description }}</p>
+        <p class="mt-5">We still shape every loaf by hand, buy fruit from nearby growers, and remember the regulars who like the corner piece.</p>
+      </div>
+    </section>
+    <section class="bg-[#bd4828] text-white">
+      <div class="mx-auto grid max-w-6xl gap-8 px-5 py-16 sm:px-8 md:grid-cols-3">
+        {% for value in values %}
+          <article>
+            <p class="text-4xl" aria-hidden="true">{{ value.mark }}</p>
+            <h2 class="mt-5 text-xl font-bold">{{ value.title }}</h2>
+            <p class="mt-2 leading-7 text-white">{{ value.description }}</p>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+    <section class="mx-auto max-w-6xl px-5 py-14 sm:px-8">
+      <a class="flex flex-wrap items-center justify-between gap-4 rounded-[2rem] bg-[#f4e6d2] px-7 py-6 font-bold" href="/journal/">
+        <span>Read notes from behind the counter</span>
+        <span aria-hidden="true">Journal →</span>
+      </a>
+    </section>
+  </main>
+{% endblock %}

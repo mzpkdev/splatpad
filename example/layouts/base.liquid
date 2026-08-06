@@ -3,20 +3,31 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="{{ site.description | escape }}">
+    <meta name="description" content="{{ page.description | escape }}">
     <title>{{ page.title | escape }} | {{ site.name | escape }}</title>
+    <link rel="stylesheet" href="/__uno.css">
   </head>
-  <body class="min-h-screen bg-zinc-950 text-zinc-100 antialiased">
-    <header class="border-b border-zinc-800">
-      <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <a class="text-lg font-semibold tracking-tight" href="/">{{ site.name }}</a>
+  <body class="min-h-screen bg-[#fffaf1] text-[#302b27] antialiased" data-page="{{ route }}">
+    <header class="border-b border-[#302b27]/10 bg-[#fffaf1]">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5 px-5 py-5 sm:px-8">
+        <a class="flex items-center gap-3 text-lg font-bold tracking-tight" href="/">
+          <span class="grid size-9 place-items-center rounded-full bg-[#bd4828] text-xl text-white" aria-hidden="true">✿</span>
+          {{ site.name }}
+        </a>
         <nav aria-label="Primary navigation">
-          <ul class="flex items-center gap-6 text-sm">
+          <ul class="flex flex-wrap items-center justify-end gap-2 text-sm font-semibold sm:gap-4">
             {% for link in navigation %}
+              {% assign is_current = false %}
+              {% if link.href == route %}
+                {% assign is_current = true %}
+              {% elsif link.href != '/' and route contains link.href %}
+                {% assign is_current = true %}
+              {% endif %}
               <li>
                 <a
-                  class="transition-colors hover:text-white {% if link.current %}text-white{% else %}text-zinc-400{% endif %}"
+                  class="rounded-full px-3 py-2 transition-colors hover:bg-[#f4e6d2] {% if is_current %}bg-[#302b27] text-white{% else %}text-[#62584f]{% endif %}"
                   href="{{ link.href }}"
+                  {% if is_current %}aria-current="page"{% endif %}
                 >
                   {{ link.label }}
                 </a>
@@ -29,11 +40,11 @@
 
     {% block content %}{% endblock %}
 
-    <footer class="border-t border-zinc-800">
-      <div class="mx-auto max-w-6xl px-6 py-8 text-sm text-zinc-500">
-        Built as a Splatpad compiler fixture.
+    <footer class="border-t border-[#302b27]/10">
+      <div class="mx-auto flex max-w-6xl flex-wrap justify-between gap-3 px-5 py-8 text-sm text-[#74685e] sm:px-8">
+        <p>Good bread. Kind mornings. Made on Alder Street.</p>
+        <p>{{ site.hours_short }}</p>
       </div>
     </footer>
-    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
