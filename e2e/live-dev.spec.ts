@@ -94,12 +94,15 @@ test("pans by default and inspects iframe elements without activating them", asy
   const inspector = page.getByRole("complementary", { name: "Element inspector" })
 
   await expect(panTool).toHaveAttribute("aria-pressed", "true")
+  await expect(panTool.locator("svg.lucide-hand")).toHaveCount(1)
+  await expect(inspectTool.locator("svg.lucide-mouse-pointer-2")).toHaveCount(1)
   await expect(preview).toHaveCSS("pointer-events", "none")
   await expect(inspector).toHaveCount(0)
 
   await page.keyboard.press("i")
   await expect(inspectTool).toHaveAttribute("aria-pressed", "true")
   await expect(preview).toHaveCSS("pointer-events", "auto")
+  await expect(site.locator("#splatpad-inspector-styles")).toHaveCount(1)
   await expect(inspector).toHaveCount(0)
 
   await heading.hover({ force: true })
@@ -113,10 +116,46 @@ test("pans by default and inspects iframe elements without activating them", asy
     .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
     .not.toBe(viewportBeforeWheel)
 
+  const viewportBeforeMiddlePan = await viewport.evaluate(
+    (element) => globalThis.getComputedStyle(element).transform,
+  )
+  const headingBounds = await heading.boundingBox()
+  expect(headingBounds).not.toBeNull()
+  await page.mouse.move(
+    (headingBounds?.x ?? 0) + (headingBounds?.width ?? 0) / 2,
+    (headingBounds?.y ?? 0) + (headingBounds?.height ?? 0) / 2,
+  )
+  await page.mouse.down({ button: "middle" })
+  await page.mouse.move(
+    (headingBounds?.x ?? 0) + (headingBounds?.width ?? 0) / 2 + 32,
+    (headingBounds?.y ?? 0) + (headingBounds?.height ?? 0) / 2 + 24,
+    { steps: 3 },
+  )
+  await page.mouse.up({ button: "middle" })
+  await expect
+    .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
+    .not.toBe(viewportBeforeMiddlePan)
+  await expect(inspector).toHaveCount(0)
+
   const headingClassName = await heading.getAttribute("class")
+  const parentClassName = await heading.evaluate(
+    (element) => element.parentElement?.getAttribute("class") ?? "",
+  )
   await heading.click({ force: true })
   await expect(inspector).toHaveText(headingClassName ?? "")
   await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
+  await expect(inspector).toHaveCSS("top", "16px")
+  await expect(inspector).toHaveCSS("bottom", "16px")
+
+  await heading.click({ force: true })
+  await expect(inspector).toHaveText(parentClassName)
+  await expect
+    .poll(() =>
+      heading.evaluate((element) =>
+        element.parentElement?.hasAttribute("data-splatpad-inspector-selected"),
+      ),
+    )
+    .toBe(true)
 
   await page.keyboard.press("Escape")
   await expect(inspector).toHaveCount(0)

@@ -139,9 +139,10 @@ html, body, #root, .designer {
   z-index: 9;
   top: 16px;
   right: 16px;
+  bottom: 16px;
   width: min(320px, calc(100% - 32px));
-  min-height: 96px;
   padding: 16px;
+  overflow: auto;
   overflow-wrap: anywhere;
   border: 1px solid #c7c7c7;
   border-radius: 9px;
