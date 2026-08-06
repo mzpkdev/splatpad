@@ -2,17 +2,19 @@ import { presetWind4 } from "@unocss/preset-wind4"
 import { terminal } from "cmdore"
 import UnoCSS from "unocss/vite"
 import type { InlineConfig, ServerOptions } from "vite"
+import { designerPlugin } from "../plugins/designer"
 import { liquidPlugin } from "../plugins/liquid"
 import { discoverSiteRoutes } from "./site-routes"
 
 interface SiteConfigOptions {
+  design?: boolean
   outDir?: string
   server?: ServerOptions
 }
 
 export const createSiteConfig = (
   root: string,
-  { outDir, server }: SiteConfigOptions = {},
+  { design = false, outDir, server }: SiteConfigOptions = {},
 ): InlineConfig => {
   const routes = discoverSiteRoutes(root)
   const input = Object.fromEntries(routes.map((route) => [route.inputName, route.entry]))
@@ -23,6 +25,7 @@ export const createSiteConfig = (
     configFile: false,
     logLevel: terminal.quiet || terminal.jsonMode ? "silent" : "info",
     plugins: [
+      ...(design ? [designerPlugin({ root })] : []),
       liquidPlugin({ root, routes }),
       UnoCSS({
         configFile: false,

@@ -13,7 +13,10 @@ test.beforeAll(async () => {
   siteRoot = await fs.mkdtemp(path.join(os.tmpdir(), "splatpad-browser-live-"))
   await fs.cp(path.resolve(process.cwd(), "example"), siteRoot, { recursive: true })
   server = await createServer(
-    createSiteConfig(siteRoot, { server: { host: "127.0.0.1", port: 0 } }),
+    createSiteConfig(siteRoot, {
+      design: true,
+      server: { host: "127.0.0.1", port: 0 },
+    }),
   )
   await server.listen()
 
@@ -49,4 +52,32 @@ test("reloads new utilities, shows template errors, and recovers", async ({ page
     `{% layout 'base' %}{% block content %}<main>Recovered automatically</main>{% endblock %}`,
   )
   await expect(page.getByText("Recovered automatically")).toBeVisible()
+})
+
+test("renders every route and reloads the board when routes change", async ({ page }) => {
+  const browserProblems: string[] = []
+  page.on("console", (message) => {
+    if (["warning", "error"].includes(message.type())) {
+      browserProblems.push(message.text())
+    }
+  })
+  page.on("pageerror", (error) => browserProblems.push(error.message))
+
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+
+  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await expect(page.locator('.page-frame[data-route="/journal/"]')).toBeVisible()
+  await expect(page.locator('.page-frame[data-route="/journal/seasonal-jam/"]')).toBeVisible()
+  await expect(page.locator(".page-frame__preview")).toHaveCount(7)
+
+  const newRoute = path.join(siteRoot, "pages", "journal", "archive", "index.liquid")
+  await fs.mkdir(path.dirname(newRoute), { recursive: true })
+  await fs.writeFile(newRoute, "<main>Archive</main>")
+
+  await expect(page.locator('.page-frame[data-route="/journal/archive/"]')).toBeVisible()
+
+  await fs.rm(path.dirname(newRoute), { recursive: true })
+  await expect(page.locator('.page-frame[data-route="/journal/archive/"]')).toHaveCount(0)
+  expect(browserProblems.join("\n")).not.toContain("React Flow")
+  expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
 })

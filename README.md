@@ -5,6 +5,7 @@ UnoCSS Wind4.
 
 ```sh
 splatpad build [root] [--out-dir <dir>]
+splatpad design [root] [--host <host>] [--port <port>]
 splatpad serve [root] [--host <host>] [--port <port>]
 ```
 
@@ -24,6 +25,12 @@ Adding, editing, renaming, or deleting a page template updates the running
 development server without a restart. Broken Liquid or JSON is shown through
 Vite's error overlay and reloads after it is fixed. `data/site.json` supplies
 render data; its optional `pages` keys do not create or remove routes.
+
+`splatpad design` serves a read-only overview at `/__splatpad/design/`. Every
+route stays loaded in a non-interactive 1440-pixel-wide frame whose height tracks
+the rendered document. The canvas supports pan and zoom, and lays routes out as
+a recursive matrix: nested paths move right while sibling branches stack down.
+Route changes reload the board automatically.
 
 Load UnoCSS from its generated stylesheet in the document head with
 `<link rel="stylesheet" href="/__uno.css">`. This keeps the generated CSS
