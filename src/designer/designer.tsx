@@ -169,7 +169,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
         const element = eventElement(event, document)
         if (event.button === 1) {
-          middlePan.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+          middlePan.current = { pointerId: event.pointerId, x: event.screenX, y: event.screenY }
           element?.setPointerCapture(event.pointerId)
           return
         }
@@ -202,10 +202,8 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
         event.preventDefault()
         event.stopImmediatePropagation()
-        const frameBounds = frame.getBoundingClientRect()
-        const scale = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
-        onPan({ x: (event.clientX - current.x) * scale, y: (event.clientY - current.y) * scale })
-        middlePan.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+        onPan({ x: event.screenX - current.x, y: event.screenY - current.y })
+        middlePan.current = { pointerId: event.pointerId, x: event.screenX, y: event.screenY }
       }
 
       const onPointerUp = (event: PointerEvent): void => {

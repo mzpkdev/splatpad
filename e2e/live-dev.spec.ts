@@ -105,8 +105,12 @@ test("pans by default and inspects iframe elements without activating them", asy
   await expect(site.locator("#splatpad-inspector-styles")).toHaveCount(1)
   await expect(inspector).toHaveCount(0)
 
-  await heading.hover({ force: true })
-  await expect(heading).toHaveAttribute("data-splatpad-inspector-hover", "")
+  await expect
+    .poll(async () => {
+      await heading.hover({ force: true })
+      return heading.getAttribute("data-splatpad-inspector-hover")
+    })
+    .toBe("")
   const viewport = page.locator(".react-flow__viewport")
   const viewportBeforeWheel = await viewport.evaluate(
     (element) => globalThis.getComputedStyle(element).transform,
@@ -116,9 +120,10 @@ test("pans by default and inspects iframe elements without activating them", asy
     .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
     .not.toBe(viewportBeforeWheel)
 
-  const viewportBeforeMiddlePan = await viewport.evaluate(
-    (element) => globalThis.getComputedStyle(element).transform,
-  )
+  const viewportBeforeMiddlePan = await viewport.evaluate((element) => {
+    const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
+    return { x: transform.m41, y: transform.m42 }
+  })
   const headingBounds = await heading.boundingBox()
   expect(headingBounds).not.toBeNull()
   await page.mouse.move(
@@ -133,8 +138,17 @@ test("pans by default and inspects iframe elements without activating them", asy
   )
   await page.mouse.up({ button: "middle" })
   await expect
-    .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
-    .not.toBe(viewportBeforeMiddlePan)
+    .poll(async () => {
+      const transform = await viewport.evaluate((element) => {
+        const matrix = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
+        return { x: matrix.m41, y: matrix.m42 }
+      })
+      return {
+        x: Math.round(transform.x - viewportBeforeMiddlePan.x),
+        y: Math.round(transform.y - viewportBeforeMiddlePan.y),
+      }
+    })
+    .toEqual({ x: 32, y: 24 })
   await expect(inspector).toHaveCount(0)
 
   const headingClassName = await heading.getAttribute("class")
