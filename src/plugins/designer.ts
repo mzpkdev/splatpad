@@ -48,6 +48,7 @@ html, body, #root, .designer {
   margin: 0;
   overflow: hidden;
 }
+.designer { position: relative; }
 .designer-state {
   display: grid;
   min-height: 100%;
@@ -87,6 +88,72 @@ html, body, #root, .designer {
   border: 0;
   background: #fff;
   pointer-events: none;
+}
+.page-frame--interactive .page-frame__preview { pointer-events: auto; }
+.designer-toolbar {
+  position: absolute;
+  z-index: 10;
+  bottom: 24px;
+  left: 50%;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border: 1px solid #c7c7c7;
+  border-radius: 9px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+}
+.designer-toolbar__button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4b5563;
+  cursor: pointer;
+}
+.designer-toolbar__button:hover { background: #f3f4f6; }
+.designer-toolbar__button[aria-pressed="true"] {
+  background: #111827;
+  color: #fff;
+}
+.designer-toolbar__button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.designer-toolbar__button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.designer-inspector {
+  position: absolute;
+  z-index: 9;
+  top: 16px;
+  right: 16px;
+  width: min(320px, calc(100% - 32px));
+  min-height: 96px;
+  padding: 16px;
+  overflow-wrap: anywhere;
+  border: 1px solid #c7c7c7;
+  border-radius: 9px;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+}
+.designer-inspector code {
+  color: #1f2937;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 .react-flow__controls {
   overflow: hidden;

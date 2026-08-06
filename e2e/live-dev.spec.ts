@@ -81,3 +81,62 @@ test("renders every route and reloads the board when routes change", async ({ pa
   expect(browserProblems.join("\n")).not.toContain("React Flow")
   expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
 })
+
+test("pans by default and inspects iframe elements without activating them", async ({ page }) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await expect(page.locator(".page-frame")).toHaveCount(7)
+
+  const panTool = page.getByRole("button", { name: "Pan tool (V)" })
+  const inspectTool = page.getByRole("button", { name: "Inspect tool (I)" })
+  const preview = page.locator('.page-frame[data-route="/menu/"] .page-frame__preview')
+  const site = page.frameLocator('iframe[title="/menu/"]')
+  const heading = site.getByRole("heading", { level: 1 })
+  const inspector = page.getByRole("complementary", { name: "Element inspector" })
+
+  await expect(panTool).toHaveAttribute("aria-pressed", "true")
+  await expect(preview).toHaveCSS("pointer-events", "none")
+  await expect(inspector).toHaveCount(0)
+
+  await page.keyboard.press("i")
+  await expect(inspectTool).toHaveAttribute("aria-pressed", "true")
+  await expect(preview).toHaveCSS("pointer-events", "auto")
+  await expect(inspector).toHaveCount(0)
+
+  await heading.hover({ force: true })
+  await expect(heading).toHaveAttribute("data-splatpad-inspector-hover", "")
+  const viewport = page.locator(".react-flow__viewport")
+  const viewportBeforeWheel = await viewport.evaluate(
+    (element) => globalThis.getComputedStyle(element).transform,
+  )
+  await page.mouse.wheel(0, 120)
+  await expect
+    .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
+    .not.toBe(viewportBeforeWheel)
+
+  const headingClassName = await heading.getAttribute("class")
+  await heading.click({ force: true })
+  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
+
+  await page.keyboard.press("Escape")
+  await expect(inspector).toHaveCount(0)
+  await expect(heading).not.toHaveAttribute("data-splatpad-inspector-selected", "")
+
+  const link = site.getByRole("link", { name: "Story" })
+  const linkClassName = await link.getAttribute("class")
+  await link.click({ force: true })
+  await expect(inspector).toHaveText(linkClassName ?? "")
+  await expect.poll(() => link.evaluate(() => globalThis.location.pathname)).toBe("/menu/")
+
+  await inspectTool.focus()
+  await page.keyboard.down("Space")
+  await expect(preview).toHaveCSS("pointer-events", "none")
+  await page.keyboard.up("Space")
+  await expect(preview).toHaveCSS("pointer-events", "auto")
+
+  await page.keyboard.press("v")
+  await expect(panTool).toHaveAttribute("aria-pressed", "true")
+  await expect(preview).toHaveCSS("pointer-events", "none")
+  await expect(inspector).toHaveCount(0)
+  await expect(link).not.toHaveAttribute("data-splatpad-inspector-selected", "")
+})
