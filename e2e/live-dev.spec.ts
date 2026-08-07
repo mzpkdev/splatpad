@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { expect, test } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 import { createServer, type ViteDevServer } from "vite"
 import { createSiteConfig } from "../src/core/site-config"
 
@@ -82,1060 +82,1197 @@ test("renders every route and reloads the board when routes change", async ({ pa
   expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
 })
 
-test("shows resolved color swatches only for semantic color values", async ({ page }) => {
-  await page.goto(`${baseUrl}/__splatpad/design/`)
-  await expect(page.locator(".page-frame")).toHaveCount(7)
-  await page.getByRole("button", { name: "Inspect tool (I)" }).click()
+const panTool = (page: Page): Locator => page.getByRole("button", { name: "Pan tool (V)" })
+const inspectTool = (page: Page): Locator => page.getByRole("button", { name: "Inspect tool (I)" })
+const inspector = (page: Page): Locator =>
+  page.getByRole("complementary", { name: "Element inspector" })
+const expectInspectorClassName = async (page: Page, className: string): Promise<void> => {
+  const tokens = className.trim() === "" ? [] : className.trim().split(/\s+/)
+  await expect(inspector(page)).toHaveAttribute("aria-busy", "false")
+  await expect
+    .poll(async () => {
+      const rawTokens = await inspector(page)
+        .locator(".designer-inspector__token")
+        .allTextContents()
+      const sourceTokens = await inspector(page)
+        .locator("[data-source-tokens]")
+        .evaluateAll((nodes) =>
+          nodes.flatMap((node) => (node.getAttribute("data-source-tokens") ?? "").split(/\s+/)),
+        )
+      const inspected = new Set([...rawTokens, ...sourceTokens].filter(Boolean))
+      return { count: inspected.size, hasAll: tokens.every((token) => inspected.has(token)) }
+    })
+    .toEqual({ count: new Set(tokens).size, hasAll: true })
+}
+const viewport = (page: Page): Locator => page.locator(".react-flow__viewport")
+const preview = (page: Page, route: string): Locator =>
+  page.locator(`iframe[aria-label="Preview of ${route}"]`)
 
-  const site = page.frameLocator('iframe[title="/menu/"]')
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "color-swatch-target"
-    target.className =
-      "text-[#fff] bg-[rgb(12_34_56_/_0.5)] fill-[rebeccapurple] border-t-[transparent] border-r-[#abcdef] w-4 opacity-50"
-    target.style.color = "white"
-    target.style.backgroundColor = "rgb(12 34 56 / 0.5)"
-    target.style.setProperty("--un-border-right-opacity", "100%")
-    target.style.setProperty("--un-border-top-opacity", "100%")
-    target.style.setProperty("--un-fill-opacity", "100%")
-    target.style.fill = "rebeccapurple"
-    target.style.borderTopColor = "transparent"
-    target.style.borderRightColor = "#abcdef"
-    target.textContent = "Color swatches"
-    body.append(target)
+const viewportPosition = async (page: Page): Promise<{ x: number; y: number }> =>
+  viewport(page).evaluate((element) => {
+    const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
+    return { x: transform.m41, y: transform.m42 }
   })
 
-  const target = site.locator("#color-swatch-target")
-  await target.dispatchEvent("pointerdown", { button: 0, pointerId: 81, pointerType: "mouse" })
-  const inspector = page.getByRole("complementary", { name: "Element inspector" })
-  await expect(inspector).toHaveAttribute("aria-busy", "false")
-
-  const valueFor = (card: string, field: string) =>
-    inspector
-      .locator(".designer-inspector__semantic-card")
-      .filter({ hasText: new RegExp(`^${card}`) })
-      .locator("dt", { hasText: new RegExp(`^${field}$`) })
-      .locator("..")
-  const swatchFor = (card: string, field: string) =>
-    valueFor(card, field).locator(".designer-inspector__color-swatch")
-  await expect(swatchFor("Typography", "Color")).toHaveCSS(
-    "background-color",
-    /^(?:rgb\(255, 255, 255\)|oklab\(0\.999)/,
+const waitForViewportToSettle = async (page: Page): Promise<void> => {
+  await viewport(page).evaluate(
+    (element) =>
+      new Promise<void>((resolve) => {
+        let previous = globalThis.getComputedStyle(element).transform
+        let stableFrames = 0
+        const observe = (): void => {
+          const current = globalThis.getComputedStyle(element).transform
+          stableFrames = current === previous ? stableFrames + 1 : 0
+          previous = current
+          if (stableFrames >= 12) {
+            resolve()
+          } else {
+            globalThis.requestAnimationFrame(observe)
+          }
+        }
+        globalThis.requestAnimationFrame(observe)
+      }),
   )
-  await expect(swatchFor("Fill", "Background")).toHaveCSS(
-    "background-color",
-    /^(?:rgba\(12, 34, 56, 0\.5\)|oklab\(.+ \/ 0\.5\))$/,
-  )
-  await expect(swatchFor("Fill", "Fill")).toHaveCSS(
-    "background-color",
-    /^(?:rgb\(102, 51, 153\)|oklab\()/,
-  )
-  await expect(swatchFor("Stroke", "Top color")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
-  await expect(swatchFor("Stroke", "Right color")).toHaveCSS(
-    "background-color",
-    /^(?:rgb\(171, 205, 239\)|oklab\()/,
-  )
-  await expect(swatchFor("Typography", "Color")).toHaveAttribute("aria-hidden", "true")
-  await expect(swatchFor("Typography", "Color")).toHaveCSS("background-image", /linear-gradient/)
-  await expect(swatchFor("Dimensions", "Width")).toHaveCount(0)
-  await expect(swatchFor("Opacity", "Opacity")).toHaveCount(0)
+}
 
-  await site.locator("body").evaluate((body) => {
-    const variableTarget = body.ownerDocument.createElement("aside")
-    variableTarget.id = "resolved-variable-color-target"
-    variableTarget.className = "text-[#2468ac] bg-[var(--swatch-paint)] fill-current"
-    variableTarget.style.setProperty("--swatch-paint", "hsl(120 50% 50% / 0.4)")
-    variableTarget.style.color = "#2468ac"
-    variableTarget.style.backgroundColor = "var(--swatch-paint)"
-    variableTarget.style.fill = "currentColor"
-    variableTarget.textContent = "Resolved variable color"
-    body.append(variableTarget)
-  })
-  await page.waitForTimeout(550)
-  await site.locator("#resolved-variable-color-target").dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 82,
-    pointerType: "mouse",
-  })
-  await expect(inspector).toHaveAttribute("aria-busy", "false")
-  await expect(swatchFor("Fill", "Background")).toHaveCSS(
-    "background-color",
-    /^(?:rgba\(64, 191, 64, 0\.4\)|oklab\(.+ \/ 0\.4\))$/,
-  )
-  await expect(swatchFor("Fill", "Fill")).toHaveCSS("background-color", /^(?:rgb|oklab)\(/)
+const waitForCanvasReady = async (page: Page): Promise<void> => {
+  await expect
+    .poll(() =>
+      page.locator(".page-frame__preview").evaluateAll((frames) =>
+        frames.every((element) => {
+          const frame = element as HTMLIFrameElement
+          const document = frame.contentDocument
+          if (document === null || document.readyState !== "complete") {
+            return false
+          }
+          const body = document.body
+          const root = document.documentElement
+          const measuredHeight = Math.max(
+            body?.scrollHeight ?? 0,
+            body?.offsetHeight ?? 0,
+            root.scrollHeight,
+            root.offsetHeight,
+            root.clientHeight,
+          )
+          return Number.parseFloat(frame.style.height) === measuredHeight
+        }),
+      ),
+    )
+    .toBe(true)
+  await waitForViewportToSettle(page)
+}
 
-  await site.locator("body").evaluate((body) => {
-    const parent = body.ownerDocument.createElement("section")
-    parent.style.color = "rgb(190 20 30)"
-    parent.style.backgroundColor = "rgb(20 80 190)"
-    parent.style.fill = "rgb(25 145 70)"
-    parent.style.borderTopColor = "rgb(140 45 175)"
-
-    const inheritedColorElement = body.ownerDocument.createElement("aside")
-    inheritedColorElement.id = "inherited-color-target"
-    inheritedColorElement.className = "text-inherit bg-inherit fill-inherit border-t-[inherit]"
-    inheritedColorElement.style.color = "inherit"
-    inheritedColorElement.style.backgroundColor = "inherit"
-    inheritedColorElement.style.fill = "inherit"
-    inheritedColorElement.style.borderTopColor = "inherit"
-    inheritedColorElement.textContent = "Inherited colors"
-    parent.append(inheritedColorElement)
-    body.append(parent)
-  })
-  await page.waitForTimeout(550)
-  const inheritedTarget = site.locator("#inherited-color-target")
-  await inheritedTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 83,
-    pointerType: "mouse",
-  })
-  await expect(inspector).toHaveAttribute("aria-busy", "false")
-  const inheritedFields = [
-    ["Typography", "Color", "color", "text-inherit"],
-    ["Fill", "Background", "background-color", "bg-inherit"],
-    ["Fill", "Fill", "fill", "fill-inherit"],
-    ["Stroke", "Top color", "border-top-color", "border-t-[inherit]"],
-  ] as const
-  await Promise.all(
-    inheritedFields.map(async ([card, field, property, token]) => {
-      const value = valueFor(card, field)
-      await expect(value.locator(".designer-inspector__semantic-value")).toHaveText("inherit")
-      await expect(value.locator("dd")).toHaveAttribute("data-source-tokens", token)
-      await expect(value.locator("dd")).toHaveAttribute("title", `inherit · ${token}`)
-      const expectedPaint = await inheritedTarget.evaluate(
-        (element, propertyName) =>
-          element.ownerDocument.defaultView
-            ?.getComputedStyle(element)
-            .getPropertyValue(propertyName),
-        property,
-      )
-      await expect(swatchFor(card, field)).toHaveCSS(
-        "background-color",
-        expectedPaint?.trim() ?? "",
-      )
-    }),
-  )
-
-  await site.locator("body").evaluate((body) => {
-    const parent = body.ownerDocument.createElement("section")
-    parent.style.backgroundColor = "rgb(215 125 35)"
-    const fallbackElement = body.ownerDocument.createElement("aside")
-    fallbackElement.id = "fallback-inherited-color-target"
-    fallbackElement.className = "bg-[var(--missing-swatch-paint,inherit)]"
-    fallbackElement.textContent = "Fallback inherited color"
-    parent.append(fallbackElement)
-    body.append(parent)
-  })
-  await page.waitForTimeout(550)
-  const fallbackTarget = site.locator("#fallback-inherited-color-target")
-  await fallbackTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 84,
-    pointerType: "mouse",
-  })
-  await expect(inspector).toHaveAttribute("aria-busy", "false")
+const waitForInspectReady = async (page: Page, route = "/menu/"): Promise<void> => {
+  await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
   await expect(
-    valueFor("Fill", "Background").locator(".designer-inspector__semantic-value"),
-  ).toHaveText("var(--missing-swatch-paint,inherit)")
-  await expect(valueFor("Fill", "Background").locator("dd")).toHaveAttribute(
-    "title",
-    /color-mix\(.+inherit.+\) · bg-\[var\(--missing-swatch-paint,inherit\)\]/,
+    page.locator(`.page-frame[data-route="${route}"] .page-frame__interaction-surface`),
+  ).toHaveCSS("pointer-events", "auto")
+  await expect(
+    page.locator(`[data-splatpad-inspector-overlay][data-splatpad-inspector-route="${route}"]`),
+  ).toHaveCount(2)
+}
+
+const centerOf = async (locator: Locator): Promise<{ x: number; y: number }> => {
+  const bounds = await locator.boundingBox()
+  if (bounds === null) {
+    throw new Error("Expected the target to have visible bounds")
+  }
+  return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+}
+
+const visiblePreviewPoint = async (
+  page: Page,
+  tool: "inspect" | "pan",
+): Promise<{ route: string; x: number; y: number }> =>
+  page.locator("body").evaluate((body, activeTool) => {
+    const canvas = body.querySelector<HTMLElement>(".react-flow")
+    if (canvas === null) {
+      throw new Error("Expected a visible canvas")
+    }
+
+    const canvasBounds = canvas.getBoundingClientRect()
+    const forbidden = [
+      ...body.querySelectorAll<HTMLElement>(
+        ".designer-toolbar, .designer-inspector, .designer-viewport-control, .react-flow__controls",
+      ),
+    ].map((element) => element.getBoundingClientRect())
+    const pointIsAvailable = (x: number, y: number): boolean =>
+      x >= Math.max(0, canvasBounds.left) &&
+      x <= Math.min(globalThis.innerWidth, canvasBounds.right) &&
+      y >= Math.max(0, canvasBounds.top) &&
+      y <= Math.min(globalThis.innerHeight, canvasBounds.bottom) &&
+      forbidden.every(
+        (bounds) => x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom,
+      )
+    const gestureIsAvailable = (x: number, y: number): boolean =>
+      Array.from({ length: 14 }, (_, step) => step / 13).every((progress) =>
+        pointIsAvailable(x + 130 * progress, y + 110 * progress),
+      )
+
+    for (const frame of body.querySelectorAll<HTMLIFrameElement>(".page-frame__preview")) {
+      const bounds = frame.getBoundingClientRect()
+      const left = Math.ceil(Math.max(0, canvasBounds.left, bounds.left)) + 2
+      const right = Math.floor(
+        Math.min(globalThis.innerWidth, canvasBounds.right - 140, bounds.right),
+      )
+      const top = Math.ceil(Math.max(0, canvasBounds.top, bounds.top)) + 2
+      const bottom = Math.floor(
+        Math.min(globalThis.innerHeight, canvasBounds.bottom - 120, bounds.bottom),
+      )
+
+      for (let y = top; y <= bottom; y += 8) {
+        for (let x = left; x <= right; x += 8) {
+          if (!gestureIsAvailable(x, y)) {
+            continue
+          }
+          const hit = body.ownerDocument.elementFromPoint(x, y)
+          const hitsExpectedLayer =
+            activeTool === "inspect"
+              ? hit?.classList.contains("page-frame__interaction-surface") === true &&
+                hit.closest(".page-frame")?.getAttribute("data-route") === frame.title
+              : hit?.closest(".react-flow") === canvas
+          if (hitsExpectedLayer) {
+            return { route: frame.title, x, y }
+          }
+        }
+      }
+    }
+
+    throw new Error("Expected a visible preview point outside floating controls")
+  }, tool)
+
+const clickTarget = async (page: Page, target: Locator): Promise<void> => {
+  const center = await centerOf(target)
+  await page.mouse.click(center.x, center.y)
+}
+
+const hoverTarget = async (page: Page, target: Locator): Promise<void> => {
+  const center = await centerOf(target)
+  await page.mouse.move(center.x, center.y)
+}
+
+const exposedPointOf = async (
+  page: Page,
+  route: string,
+  targetSelector: string,
+): Promise<{ x: number; y: number }> =>
+  page.locator("body").evaluate(
+    (body, options) => {
+      const frame = body.ownerDocument.querySelector<HTMLIFrameElement>(
+        `iframe[title="${options.route}"]`,
+      )
+      const target = frame?.contentDocument?.querySelector(options.targetSelector)
+      if (frame === null || frame === undefined || target === null || target === undefined) {
+        throw new Error("Expected a preview and target")
+      }
+      const bounds = target.getBoundingClientRect()
+      const frameBounds = frame.getBoundingClientRect()
+      const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
+      const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
+      for (let y = bounds.top + 1; y < bounds.bottom; y += 4) {
+        for (let x = bounds.left + 1; x < bounds.right; x += 4) {
+          if (frame.contentDocument?.elementFromPoint(x, y) === target) {
+            const designerX = frameBounds.left + (x + frame.clientLeft) * scaleX
+            const designerY = frameBounds.top + (y + frame.clientTop) * scaleY
+            const designerHit = frame.ownerDocument.elementFromPoint(designerX, designerY)
+            if (
+              designerHit?.classList.contains("page-frame__interaction-surface") !== true ||
+              designerHit.closest(".page-frame")?.getAttribute("data-route") !== options.route
+            ) {
+              continue
+            }
+            return {
+              x: designerX,
+              y: designerY,
+            }
+          }
+        }
+      }
+      throw new Error(`Expected ${options.targetSelector} to have an exposed point`)
+    },
+    { route, targetSelector },
   )
-  await expect(swatchFor("Fill", "Background")).toHaveCount(0)
 
-  await site.locator("body").evaluate((body) => {
-    const unresolvedTarget = body.ownerDocument.createElement("aside")
-    unresolvedTarget.id = "unresolved-color-target"
-    unresolvedTarget.className = "bg-[var(--missing-swatch-paint)]"
-    unresolvedTarget.textContent = "Unresolved color"
-    body.append(unresolvedTarget)
-  })
-  await page.waitForTimeout(550)
-  await site.locator("#unresolved-color-target").dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 85,
-    pointerType: "mouse",
-  })
-  await expect(inspector).toHaveAttribute("aria-busy", "false")
-  await expect(swatchFor("Fill", "Background")).toHaveCount(0)
-})
+const dragFrom = async (
+  page: Page,
+  start: { x: number; y: number },
+  movement: { x: number; y: number },
+  button: "left" | "middle" = "left",
+): Promise<void> => {
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down({ button })
+  await page.mouse.move(start.x + movement.x, start.y + movement.y, { steps: 12 })
+  await page.mouse.up({ button })
+}
 
-test("refreshes a pinned inspection when the selected element mutates", async ({ page }) => {
+const visibleOutlineCount = async (page: Page, borderColor: string): Promise<number> =>
+  page.locator("body > div").evaluateAll(
+    (elements, expectedColor) =>
+      elements.filter((element) => {
+        const style = globalThis.getComputedStyle(element)
+        return (
+          style.position === "fixed" &&
+          style.pointerEvents === "none" &&
+          style.display !== "none" &&
+          style.borderTopColor === expectedColor
+        )
+      }).length,
+    borderColor,
+  )
+
+const outlineSnapshot = async (
+  page: Page,
+  route: string,
+  targetSelector: string,
+  borderColor: string,
+): Promise<{
+  alignmentGaps: number[]
+  borderStyles: string[]
+  borderWidths: string[]
+  display: string
+  pointerEvents: string
+  withinFrame: boolean
+  zIndex: number
+}> =>
+  page.locator("body").evaluate(
+    (body, options) => {
+      const frame = body.ownerDocument.querySelector<HTMLIFrameElement>(
+        `iframe[title="${options.route}"]`,
+      )
+      const target = frame?.contentDocument?.querySelector(options.targetSelector)
+      const overlay = [...body.children].find((element) => {
+        const style = globalThis.getComputedStyle(element)
+        return (
+          style.position === "fixed" &&
+          style.pointerEvents === "none" &&
+          style.display !== "none" &&
+          style.borderTopColor === options.borderColor
+        )
+      })
+      if (frame === undefined || frame === null || target === undefined || target === null) {
+        throw new Error("Expected the preview frame and outline target")
+      }
+      if (overlay === undefined) {
+        throw new Error(`Expected a visible ${options.borderColor} outline`)
+      }
+
+      const frameBounds = frame.getBoundingClientRect()
+      const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
+      const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
+      const frameLeft = frameBounds.left + frame.clientLeft * scaleX
+      const frameTop = frameBounds.top + frame.clientTop * scaleY
+      const targetBounds = target.getBoundingClientRect()
+      const viewportWidth = frame.contentDocument?.documentElement.clientWidth ?? 0
+      const viewportHeight = frame.contentDocument?.documentElement.clientHeight ?? 0
+      const expected = {
+        bottom: frameTop + Math.max(0, Math.min(viewportHeight, targetBounds.bottom)) * scaleY,
+        left: frameLeft + Math.max(0, Math.min(viewportWidth, targetBounds.left)) * scaleX,
+        right: frameLeft + Math.max(0, Math.min(viewportWidth, targetBounds.right)) * scaleX,
+        top: frameTop + Math.max(0, Math.min(viewportHeight, targetBounds.top)) * scaleY,
+      }
+      const bounds = overlay.getBoundingClientRect()
+      const style = globalThis.getComputedStyle(overlay)
+      return {
+        alignmentGaps: [
+          Math.abs(bounds.top - expected.top) < 3
+            ? 0
+            : Math.round((bounds.top - expected.top) * 10) / 10,
+          Math.abs(bounds.right - expected.right) < 3
+            ? 0
+            : Math.round((bounds.right - expected.right) * 10) / 10,
+          Math.abs(bounds.bottom - expected.bottom) < 3
+            ? 0
+            : Math.round((bounds.bottom - expected.bottom) * 10) / 10,
+          Math.abs(bounds.left - expected.left) < 3
+            ? 0
+            : Math.round((bounds.left - expected.left) * 10) / 10,
+        ],
+        borderStyles: [
+          style.borderTopStyle,
+          style.borderRightStyle,
+          style.borderBottomStyle,
+          style.borderLeftStyle,
+        ],
+        borderWidths: [
+          style.borderTopWidth,
+          style.borderRightWidth,
+          style.borderBottomWidth,
+          style.borderLeftWidth,
+        ],
+        display: style.display,
+        pointerEvents: style.pointerEvents,
+        withinFrame:
+          bounds.top >= frameTop - 0.1 &&
+          bounds.right <= frameLeft + viewportWidth * scaleX + 0.1 &&
+          bounds.bottom <= frameTop + viewportHeight * scaleY + 0.1 &&
+          bounds.left >= frameLeft - 0.1,
+        zIndex: Number(style.zIndex),
+      }
+    },
+    { borderColor, route, targetSelector },
+  )
+
+test("refreshes pinned semantic values after a stylesheet-only update", async ({ page }) => {
   await page.goto(`${baseUrl}/__splatpad/design/`)
   await expect(page.locator(".page-frame")).toHaveCount(7)
-  await page.getByRole("button", { name: "Inspect tool (I)" }).click()
+  await waitForCanvasReady(page)
+  await inspectTool(page).click()
+  await waitForInspectReady(page)
 
-  const site = page.frameLocator('iframe[title="/menu/"]')
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "live-inspection-target"
-    target.className = "p-3 text-[#112233]"
-    target.style.color = "rgb(17 34 51)"
-    target.textContent = "Live inspection"
-    body.append(target)
+  const frame = preview(page, "/menu/")
+  await frame.evaluate((iframe) => {
+    const document = (iframe as HTMLIFrameElement).contentDocument!
+    const target = document.createElement("div")
+    target.id = "stylesheet-refresh-target"
+    target.className = "ps-4 text-[#112233]"
+    target.style.position = "fixed"
+    target.style.inset = "20px auto auto 20px"
+    target.textContent = "Stylesheet refresh target"
+    document.body.prepend(target)
   })
-  const target = site.locator("#live-inspection-target")
-  await target.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 86,
-    pointerType: "mouse",
-  })
+  const targetPoint = await exposedPointOf(page, "/menu/", "#stylesheet-refresh-target")
+  await page.mouse.click(targetPoint.x, targetPoint.y)
 
-  const inspector = page.getByRole("complementary", { name: "Element inspector" })
-  const padding = inspector
+  const sidebar = inspector(page)
+  await expect(sidebar).toHaveAttribute("aria-busy", "false")
+  const padding = sidebar
     .locator(".designer-inspector__spacing-card")
     .filter({ hasText: "Padding" })
-  const colorSwatch = inspector
+  const swatch = sidebar
     .locator(".designer-inspector__semantic-card")
     .filter({ hasText: /^Typography/ })
     .locator(".designer-inspector__color-swatch")
-  await expect(padding.locator("div", { hasText: /^Top3$/ })).toBeVisible()
-  await expect(colorSwatch).toHaveCSS("background-color", "rgb(17, 34, 51)")
-  await expect(target).toHaveAttribute("data-splatpad-inspector-selected", "")
+  await expect(padding.locator("div", { hasText: /^Left4$/ })).toBeVisible()
+  await expect(swatch).toBeVisible()
+  const initialPaint = await swatch.evaluate(
+    (element) => globalThis.getComputedStyle(element).backgroundColor,
+  )
 
-  await target.evaluate((element) => {
-    element.setAttribute("class", "p-8 text-[#112233]")
+  await frame.evaluate((iframe) => {
+    const document = (iframe as HTMLIFrameElement).contentDocument!
+    const style = document.createElement("style")
+    style.id = "stylesheet-refresh"
+    style.textContent =
+      "#stylesheet-refresh-target { direction: rtl; color: rgb(170 85 34) !important; }"
+    document.head.append(style)
   })
-  await expect(padding.locator("div", { hasText: /^Top8$/ })).toBeVisible()
-  await expect(padding.locator("div", { hasText: /^Top3$/ })).toHaveCount(0)
-  await expect(target).toHaveAttribute("data-splatpad-inspector-selected", "")
 
-  await target.evaluate((element) => {
-    const targetElement = element as HTMLElement
-    targetElement.style.color = "rgb(170 85 34)"
-  })
-  await expect(colorSwatch).toHaveCSS("background-color", "rgb(170, 85, 34)")
-  await expect(target).toHaveAttribute("data-splatpad-inspector-selected", "")
-})
-
-test("pans by default and inspects iframe elements without activating them", async ({ page }) => {
-  await page.goto(`${baseUrl}/__splatpad/design/`)
-  await expect(page.locator(".page-frame")).toHaveCount(7)
-
-  const viewportBreakpoint = page.getByRole("combobox", { name: "Viewport breakpoint" })
-  const frameCount = await page.locator("iframe[title]").count()
-  await expect(viewportBreakpoint).toHaveValue("Default")
+  await expect(padding.locator("div", { hasText: /^Right4$/ })).toBeVisible()
+  await expect(padding.locator("div", { hasText: /^Left4$/ })).toHaveCount(0)
   await expect
-    .poll(() =>
-      page
-        .locator("iframe[title]")
-        .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).clientWidth)),
-    )
-    .toEqual(Array.from({ length: frameCount }, () => 639))
-
-  const panTool = page.getByRole("button", { name: "Pan tool (V)" })
-  const inspectTool = page.getByRole("button", { name: "Inspect tool (I)" })
-  const preview = page.locator('.page-frame[data-route="/menu/"] .page-frame__preview')
-  const site = page.frameLocator('iframe[title="/menu/"]')
-  const heading = site.getByRole("heading", { level: 1 })
-  const inspector = page.getByRole("complementary", { name: "Element inspector" })
-  const expectInspectorClassName = async (className: string): Promise<void> => {
-    const tokens = className.trim() === "" ? [] : className.trim().split(/\s+/)
-    await expect(inspector).toHaveAttribute("aria-busy", "false")
-    await expect
-      .poll(async () => {
-        const rawTokens = await inspector.locator(".designer-inspector__token").allTextContents()
-        const sourceTokens = await inspector
-          .locator("[data-source-tokens]")
-          .evaluateAll((nodes) =>
-            nodes.flatMap((node) => (node.getAttribute("data-source-tokens") ?? "").split(/\s+/)),
-          )
-        const inspectedTokens = [...new Set([...rawTokens, ...sourceTokens].filter(Boolean))]
-        return {
-          count: inspectedTokens.length,
-          hasAll: tokens.every((token) => inspectedTokens.includes(token)),
-        }
+    .poll(async () => {
+      const swatchPaint = await swatch.evaluate(
+        (element) => globalThis.getComputedStyle(element).backgroundColor,
+      )
+      const targetPaint = await frame.evaluate((iframe) => {
+        const target = (iframe as HTMLIFrameElement).contentDocument?.querySelector(
+          "#stylesheet-refresh-target",
+        )
+        return target === null || target === undefined
+          ? ""
+          : globalThis.getComputedStyle(target).color
       })
-      .toEqual({ count: new Set(tokens).size, hasAll: true })
-  }
-  const overlaySnapshot = async (kind: "hover" | "selected", targetSelector: string) =>
-    page
-      .locator(
-        `[data-splatpad-inspector-overlay="${kind}"][data-splatpad-inspector-route="/menu/"]`,
-      )
-      .evaluate((overlay, selector) => {
-        const frame =
-          overlay.ownerDocument.querySelector<HTMLIFrameElement>('iframe[title="/menu/"]')
-        const target = frame?.contentDocument?.querySelector(selector)
-        if (frame === null || frame === undefined || target === null || target === undefined) {
-          throw new Error("Expected the preview frame and inspected target")
-        }
-
-        const frameBounds = frame.getBoundingClientRect()
-        const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
-        const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
-        const frameLeft = frameBounds.left + frame.clientLeft * scaleX
-        const frameTop = frameBounds.top + frame.clientTop * scaleY
-        const targetBounds = target.getBoundingClientRect()
-        const viewportWidth = frame.contentDocument?.documentElement.clientWidth ?? 0
-        const viewportHeight = frame.contentDocument?.documentElement.clientHeight ?? 0
-        const expected = {
-          bottom: frameTop + Math.max(0, Math.min(viewportHeight, targetBounds.bottom)) * scaleY,
-          left: frameLeft + Math.max(0, Math.min(viewportWidth, targetBounds.left)) * scaleX,
-          right: frameLeft + Math.max(0, Math.min(viewportWidth, targetBounds.right)) * scaleX,
-          top: frameTop + Math.max(0, Math.min(viewportHeight, targetBounds.top)) * scaleY,
-        }
-        const bounds = overlay.getBoundingClientRect()
-        const style = globalThis.getComputedStyle(overlay)
-        return {
-          alignmentGaps: [
-            Math.abs(bounds.top - expected.top) < 2
-              ? 0
-              : Math.round((bounds.top - expected.top) * 10) / 10,
-            Math.abs(bounds.right - expected.right) < 2
-              ? 0
-              : Math.round((bounds.right - expected.right) * 10) / 10,
-            Math.abs(bounds.bottom - expected.bottom) < 2
-              ? 0
-              : Math.round((bounds.bottom - expected.bottom) * 10) / 10,
-            Math.abs(bounds.left - expected.left) < 2
-              ? 0
-              : Math.round((bounds.left - expected.left) * 10) / 10,
-          ],
-          borderColor: style.borderTopColor,
-          borderStyles: [
-            style.borderTopStyle,
-            style.borderRightStyle,
-            style.borderBottomStyle,
-            style.borderLeftStyle,
-          ],
-          borderWidths: [
-            style.borderTopWidth,
-            style.borderRightWidth,
-            style.borderBottomWidth,
-            style.borderLeftWidth,
-          ],
-          display: style.display,
-          margin: style.margin,
-          ownerIsDesigner: overlay.ownerDocument === frame.ownerDocument,
-          pointerEvents: style.pointerEvents,
-          transform: style.transform,
-          withinFrame:
-            bounds.top >= frameTop - 0.1 &&
-            bounds.right <= frameLeft + viewportWidth * scaleX + 0.1 &&
-            bounds.bottom <= frameTop + viewportHeight * scaleY + 0.1 &&
-            bounds.left >= frameLeft - 0.1,
-          zIndex: style.zIndex,
-        }
-      }, targetSelector)
-
-  await expect(panTool).toHaveAttribute("aria-pressed", "true")
-  await expect(panTool.locator("svg.lucide-hand")).toHaveCount(1)
-  await expect(inspectTool.locator("svg.lucide-mouse-pointer-2")).toHaveCount(1)
-  await expect(preview).toHaveCSS("pointer-events", "none")
-  await expect(inspector).toHaveCount(0)
-
-  await page.keyboard.press("i")
-  await expect(inspectTool).toHaveAttribute("aria-pressed", "true")
-  await expect(preview).toHaveCSS("pointer-events", "auto")
-  await expect(site.locator("#splatpad-inspector-styles")).toHaveCount(1)
-  await expect(inspector).toHaveCount(0)
-
-  await site.locator("head").evaluate((head) => {
-    const style = head.ownerDocument.createElement("style")
-    style.textContent = `
-      html {
-        filter: opacity(.999);
-        transform: translate(23px, 29px) scale(.97);
-        transform-origin: 0 0;
-      }
-      [aria-hidden="true"] { display: none !important; }
-      div {
-        border: 11px dashed red !important;
-        box-sizing: content-box !important;
-        height: 13px !important;
-        margin: 17px !important;
-        padding: 19px !important;
-        transform: translate(23px, 29px) !important;
-        width: 31px !important;
-      }
-    `
-    head.append(style)
-  })
-
-  await expect
-    .poll(async () => {
-      await heading.hover({ force: true })
-      return heading.getAttribute("data-splatpad-inspector-hover")
-    })
-    .toBe("")
-  await expect(site.locator('[data-splatpad-inspector-overlay="hover"]')).toHaveCount(0)
-  await expect
-    .poll(() => overlaySnapshot("hover", "h1"))
-    .toEqual({
-      alignmentGaps: [0, 0, 0, 0],
-      borderColor: "rgb(37, 99, 235)",
-      borderStyles: ["solid", "solid", "solid", "solid"],
-      borderWidths: ["2px", "2px", "2px", "2px"],
-      display: "block",
-      margin: "0px",
-      ownerIsDesigner: true,
-      pointerEvents: "none",
-      transform: "none",
-      withinFrame: true,
-      zIndex: "2147483646",
-    })
-  const viewport = page.locator(".react-flow__viewport")
-  const viewportBeforeWheel = await viewport.evaluate(
-    (element) => globalThis.getComputedStyle(element).transform,
-  )
-  await page.mouse.wheel(0, 120)
-  await expect
-    .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
-    .not.toBe(viewportBeforeWheel)
-
-  const headingClassName = await heading.getAttribute("class")
-  const parentClassName = await heading.evaluate(
-    (element) => element.parentElement?.getAttribute("class") ?? "",
-  )
-  await heading.click({ force: true })
-  await expectInspectorClassName(headingClassName ?? "")
-  const marginSummary = inspector
-    .locator('.designer-inspector__spacing-card[data-source-tokens~="mt-3"]')
-    .filter({ hasText: "Margin" })
-  await expect(marginSummary.locator("div", { hasText: /^Top3$/ })).toBeVisible()
-
-  await viewportBreakpoint.selectOption("Default")
-  await expect(viewportBreakpoint).toHaveValue("Default")
-  await expect
-    .poll(() =>
-      page
-        .locator("iframe[title]")
-        .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).clientWidth)),
-    )
-    .toEqual(Array.from({ length: await page.locator("iframe[title]").count() }, () => 639))
-
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "responsive-spacing-target"
-    target.className = "p-3 sm:px-4"
-    target.textContent = "Responsive spacing"
-    body.append(target)
-  })
-  const responsiveSpacingTarget = site.locator("#responsive-spacing-target")
-  await responsiveSpacingTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 71,
-    pointerType: "mouse",
-  })
-  await responsiveSpacingTarget.dispatchEvent("pointerup", {
-    button: 0,
-    pointerId: 71,
-    pointerType: "mouse",
-  })
-  const paddingSummary = inspector
-    .locator(".designer-inspector__spacing-card")
-    .filter({ hasText: "Padding" })
-  await expect(paddingSummary.locator("div", { hasText: /^Top3$/ })).toBeVisible()
-  await expect(paddingSummary.locator("div", { hasText: /^Left3$/ })).toBeVisible()
-
-  await viewportBreakpoint.selectOption("sm")
-  await expect(viewportBreakpoint).toHaveValue("sm")
-  await expect
-    .poll(() =>
-      page
-        .locator("iframe[title]")
-        .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).clientWidth)),
-    )
-    .toEqual(Array.from({ length: await page.locator("iframe[title]").count() }, () => 640))
-  await expect(paddingSummary.locator("div", { hasText: /^Top3$/ })).toBeVisible()
-  await expect(paddingSummary.locator("div", { hasText: /^Left4$/ })).toBeVisible()
-
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "semantic-properties-target"
-    target.className =
-      "flex flex-row items-center gap-4 size-[13px] text-[17px] leading-[1.5] bg-[#123456] border-2 border-solid rounded-lg opacity-50 isolate shadow-lg hover:w-4"
-    target.textContent = "Semantic properties"
-    body.append(target)
-  })
-  const semanticTarget = site.locator("#semantic-properties-target")
-  await semanticTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 75,
-    pointerType: "mouse",
-  })
-  await expectInspectorClassName((await semanticTarget.getAttribute("class")) ?? "")
-  await Promise.all(
-    [
-      "Typography",
-      "Dimensions",
-      "Auto Layout",
-      "Fill",
-      "Stroke",
-      "Corners",
-      "Opacity",
-      "Effects",
-    ].map((card) =>
-      expect(inspector.getByRole("heading", { level: 4, name: card, exact: true })).toBeVisible(),
-    ),
-  )
-  await expect(inspector.getByText("13px", { exact: true }).first()).toBeVisible()
-  await expect(inspector.getByText("17px", { exact: true })).toBeVisible()
-  await expect(inspector.locator('[data-utility-token="shadow-lg"]')).toBeVisible()
-  await expect(inspector.locator('[data-utility-token="hover:w-4"]')).toBeVisible()
-  await semanticTarget.evaluate((element) => element.remove())
-
-  await viewportBreakpoint.selectOption("Default")
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "responsive-auto-layout-target"
-    target.className = "md:flex gap-4"
-    target.textContent = "Responsive auto layout"
-    body.append(target)
-  })
-  const responsiveAutoLayoutTarget = site.locator("#responsive-auto-layout-target")
-  await responsiveAutoLayoutTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 79,
-    pointerType: "mouse",
-  })
-  await expect(inspector.getByRole("heading", { level: 4, name: "Auto Layout" })).toHaveCount(0)
-  await expect(inspector.locator('[data-utility-token="md:flex"]')).toBeVisible()
-  await expect(inspector.locator('[data-utility-token="gap-4"]')).toBeVisible()
-
-  await viewportBreakpoint.selectOption("md")
-  const responsiveAutoLayout = inspector
-    .locator(".designer-inspector__semantic-card")
-    .filter({ hasText: "Auto Layout" })
-  await expect(responsiveAutoLayout.locator("div", { hasText: /^Modeflex$/ })).toBeVisible()
-  await expect(responsiveAutoLayout.locator("div", { hasText: /^Row gap4$/ })).toBeVisible()
-  await expect(responsiveAutoLayout.locator("div", { hasText: /^Column gap4$/ })).toBeVisible()
-  await responsiveAutoLayoutTarget.evaluate((element) => element.remove())
-  await viewportBreakpoint.selectOption("sm")
-
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "conditional-generator-target"
-    target.className = "container bg-red-500/50"
-    target.textContent = "Conditional generator rules"
-    body.append(target)
-  })
-  const conditionalGeneratorTarget = site.locator("#conditional-generator-target")
-  await conditionalGeneratorTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 76,
-    pointerType: "mouse",
-  })
-  await expect(inspector.locator('[data-utility-token="container"]')).toBeVisible()
-  await expect(inspector.locator('[data-utility-token="bg-red-500/50"]')).toBeVisible()
-  await expect(inspector.getByRole("heading", { level: 4, name: "Dimensions" })).toHaveCount(0)
-  await expect(inspector.getByRole("heading", { level: 4, name: "Fill" })).toHaveCount(0)
-  await conditionalGeneratorTarget.evaluate((element) => element.remove())
-
-  await responsiveSpacingTarget.evaluate((element) => element.remove())
-  await page.waitForTimeout(550)
-  await viewportBreakpoint.selectOption("Default")
-  await heading.click({ force: true })
-  await expectInspectorClassName(headingClassName ?? "")
-  const headingTypography = inspector
-    .locator(".designer-inspector__semantic-card")
-    .filter({ hasText: "Typography" })
-  await expect(headingTypography.locator("div", { hasText: /^Size5xl$/ })).toBeVisible()
-  await expect(headingTypography.locator("div", { hasText: /^Weightbold$/ })).toBeVisible()
-  await expect(
-    headingTypography.locator("div", { hasText: /^Letter spacing-0\.04em$/ }),
-  ).toBeVisible()
-  await expect(headingTypography.locator("div", { hasText: /^Line height5xl$/ })).toHaveCount(0)
-  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
-  await expect(inspector).toHaveCSS("top", "16px")
-  await expect(inspector).toHaveCSS("bottom", "16px")
-  await expect
-    .poll(() => overlaySnapshot("selected", "h1"))
-    .toEqual({
-      alignmentGaps: [0, 0, 0, 0],
-      borderColor: "rgb(124, 58, 237)",
-      borderStyles: ["solid", "solid", "solid", "solid"],
-      borderWidths: ["2px", "2px", "2px", "2px"],
-      display: "block",
-      margin: "0px",
-      ownerIsDesigner: true,
-      pointerEvents: "none",
-      transform: "none",
-      withinFrame: true,
-      zIndex: "2147483647",
-    })
-
-  const selectedOverlay = page.locator(
-    '[data-splatpad-inspector-overlay="selected"][data-splatpad-inspector-route="/menu/"]',
-  )
-  const selectedBoundsBeforeMovement = await selectedOverlay.boundingBox()
-  await heading.evaluate((element) => {
-    const target = element as HTMLElement
-    target.style.setProperty("left", "61px", "important")
-    target.style.setProperty("position", "relative", "important")
-    target.style.setProperty("top", "37px", "important")
-  })
-  await expect
-    .poll(() => overlaySnapshot("selected", "h1"))
-    .toMatchObject({
-      alignmentGaps: [0, 0, 0, 0],
-    })
-  await expect
-    .poll(async () => {
-      const movedBounds = await selectedOverlay.boundingBox()
-      return (
-        (movedBounds?.x ?? 0) > (selectedBoundsBeforeMovement?.x ?? 0) + 1 &&
-        (movedBounds?.y ?? 0) > (selectedBoundsBeforeMovement?.y ?? 0) + 1
-      )
+      return swatchPaint === targetPaint && swatchPaint !== initialPaint
     })
     .toBe(true)
-  await heading.evaluate((element) => {
-    const target = element as HTMLElement
-    target.style.removeProperty("left")
-    target.style.removeProperty("position")
-    target.style.removeProperty("top")
-  })
-  await expect
-    .poll(() => overlaySnapshot("selected", "h1"))
-    .toMatchObject({
-      alignmentGaps: [0, 0, 0, 0],
-    })
+})
 
-  await site.locator("body").evaluate((body) => {
-    for (const direction of ["ltr", "rtl"] as const) {
+test("shows generated at-rule conditions separately from raw utility targets", async ({ page }) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await waitForCanvasReady(page)
+  await inspectTool(page).click()
+  await waitForInspectReady(page)
+
+  const frame = preview(page, "/menu/")
+  await frame.evaluate((iframe) => {
+    const document = (iframe as HTMLIFrameElement).contentDocument!
+    const target = document.createElement("div")
+    target.id = "generated-conditions-target"
+    target.className = "container bg-red-500/50"
+    target.style.cssText = "position:fixed;inset:20px auto auto 20px;padding:12px"
+    target.textContent = "Generated conditions target"
+    document.body.prepend(target)
+  })
+  const targetPoint = await exposedPointOf(page, "/menu/", "#generated-conditions-target")
+  await page.mouse.click(targetPoint.x, targetPoint.y)
+
+  const sidebar = inspector(page)
+  await expect(sidebar).toHaveAttribute("aria-busy", "false")
+  const container = sidebar.locator('[data-utility-token="container"]')
+  const color = sidebar.locator('[data-utility-token="bg-red-500/50"]')
+  await expect(container.getByLabel("Generated conditions").locator("code")).toHaveText([
+    "@media (min-width: 40rem)",
+    "@media (min-width: 48rem)",
+    "@media (min-width: 64rem)",
+    "@media (min-width: 80rem)",
+    "@media (min-width: 96rem)",
+  ])
+  await expect(color.getByLabel("Generated conditions").locator("code")).toHaveText([
+    "@supports (color: color-mix(in lab, red, red))",
+  ])
+  expect(await sidebar.locator(".designer-inspector__target code").allTextContents()).not.toEqual(
+    expect.arrayContaining([expect.stringMatching(/^@/)]),
+  )
+})
+
+test.describe("canvas tools", () => {
+  let browserProblems: string[]
+
+  test.beforeEach(async ({ page }) => {
+    browserProblems = []
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        browserProblems.push(message.text())
+      }
+    })
+    page.on("pageerror", (error) => browserProblems.push(error.message))
+    await page.goto(`${baseUrl}/__splatpad/design/`)
+    await expect(page.locator(".page-frame")).toHaveCount(7)
+    await waitForCanvasReady(page)
+  })
+
+  test.afterEach(() => {
+    expect(browserProblems, "canvas scenarios must not emit browser errors").toEqual([])
+  })
+
+  test("Given Pan is the default, primary-dragging over a preview moves the canvas", async ({
+    page,
+  }) => {
+    await expect(panTool(page)).toHaveAttribute("aria-pressed", "true")
+    await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "false")
+
+    const before = await viewportPosition(page)
+    await dragFrom(page, await visiblePreviewPoint(page, "pan"), { x: 84, y: 56 })
+
+    await expect.poll(() => viewportPosition(page)).toEqual({ x: before.x + 84, y: before.y + 56 })
+  })
+
+  test("Given the toolbar, clicking tools and pressing V or I keeps one tool active", async ({
+    page,
+  }) => {
+    await inspectTool(page).click()
+    await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
+    await expect(panTool(page)).toHaveAttribute("aria-pressed", "false")
+
+    await page.keyboard.press("v")
+    await expect(panTool(page)).toHaveAttribute("aria-pressed", "true")
+    await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "false")
+
+    await page.keyboard.press("I")
+    await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
+    await expect(panTool(page)).toHaveAttribute("aria-pressed", "false")
+
+    await panTool(page).click()
+    await expect(panTool(page)).toHaveAttribute("aria-pressed", "true")
+    await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "false")
+  })
+
+  test("Given Inspect is active, selecting an element opens the sidebar with its exact className", async ({
+    page,
+  }) => {
+    const inspectedRoot = page.frameLocator('iframe[title="/menu/"]').locator("html")
+    const heading = page.frameLocator('iframe[title="/menu/"]').getByRole("heading", { level: 1 })
+    const exactClassName = await heading.getAttribute("class")
+    const inspectedDomBefore = await inspectedRoot.evaluate((element) => element.outerHTML)
+
+    await inspectTool(page).click()
+    await expect(inspector(page)).toHaveCount(0)
+    await clickTarget(page, heading)
+
+    await expectInspectorClassName(page, exactClassName ?? "")
+    await expect.poll(() => visibleOutlineCount(page, "rgb(124, 58, 237)")).toBe(1)
+    expect(await inspectedRoot.evaluate((element) => element.outerHTML)).toBe(inspectedDomBefore)
+  })
+
+  test("Given two previews, selecting in the second replaces the global selection from the first", async ({
+    page,
+  }) => {
+    const menuHeading = page
+      .frameLocator('iframe[title="/menu/"]')
+      .getByRole("heading", { level: 1 })
+    const storyHeading = page
+      .frameLocator('iframe[title="/story/"]')
+      .getByRole("heading", { level: 1 })
+    const storyClassName = await storyHeading.getAttribute("class")
+
+    await page.keyboard.press("i")
+    await clickTarget(page, menuHeading)
+    await page
+      .locator('.page-frame[data-route="/story/"] .page-frame__interaction-surface')
+      .evaluate((surface) => {
+        const counts: number[] = []
+        Object.assign(globalThis, { transitionVisibleSelectionCounts: counts })
+        surface.addEventListener("pointerup", () => {
+          counts.push(
+            [
+              ...surface.ownerDocument.querySelectorAll(
+                '[data-splatpad-inspector-overlay="selected"]',
+              ),
+            ].filter((overlay) => globalThis.getComputedStyle(overlay).display !== "none").length,
+          )
+        })
+      })
+    const storyPoint = await centerOf(storyHeading)
+    await page
+      .locator('.page-frame[data-route="/story/"] .page-frame__interaction-surface')
+      .evaluate((surface, point) => {
+        const view = surface.ownerDocument.defaultView!
+        for (const type of ["pointerdown", "pointerup"] as const) {
+          surface.dispatchEvent(
+            new view.PointerEvent(type, {
+              bubbles: true,
+              button: 0,
+              buttons: type === "pointerdown" ? 1 : 0,
+              cancelable: true,
+              clientX: point.x,
+              clientY: point.y,
+              pointerId: 9191,
+            }),
+          )
+        }
+      }, storyPoint)
+
+    await expectInspectorClassName(page, storyClassName ?? "")
+    expect(
+      await page.evaluate(
+        () =>
+          (globalThis as typeof globalThis & { transitionVisibleSelectionCounts: number[] })
+            .transitionVisibleSelectionCounts,
+      ),
+    ).toEqual([1])
+    await expect.poll(() => visibleOutlineCount(page, "rgb(124, 58, 237)")).toBe(1)
+  })
+
+  test("Given a selection, Escape, empty canvas, Pan, and target removal each clear it", async ({
+    page,
+  }) => {
+    const site = page.frameLocator('iframe[title="/menu/"]')
+    const heading = site.getByRole("heading", { level: 1 })
+    await page.keyboard.press("i")
+
+    await clickTarget(page, heading)
+    await page.keyboard.press("Escape")
+    await expect(inspector(page)).toHaveCount(0)
+
+    await clickTarget(page, heading)
+    await page.locator(".react-flow__pane").click({ position: { x: 8, y: 8 } })
+    await expect(inspector(page)).toHaveCount(0)
+
+    await clickTarget(page, heading)
+    await panTool(page).click()
+    await expect(inspector(page)).toHaveCount(0)
+
+    await inspectTool(page).click()
+    await site.locator("body").evaluate((body) => {
       const target = body.ownerDocument.createElement("aside")
-      target.id = `${direction}-logical-spacing-target`
-      target.className = "ps-2 pe-3"
-      target.dir = direction
-      target.textContent = `${direction.toUpperCase()} logical spacing`
+      target.id = "temporary-selection"
+      target.className = "temporary target"
+      target.textContent = "Temporary selection"
+      target.style.cssText =
+        "position:fixed;inset:8px auto auto 8px;z-index:9999;padding:12px;background:white"
       body.append(target)
-    }
+    })
+    const temporary = site.getByText("Temporary selection")
+    const temporaryPoint = await exposedPointOf(page, "/menu/", "#temporary-selection")
+    await page.mouse.click(temporaryPoint.x, temporaryPoint.y)
+    await expectInspectorClassName(page, "temporary target")
+    await temporary.evaluate((element) => element.remove())
+    await expect(inspector(page)).toHaveCount(0)
   })
-  const ltrSpacingTarget = site.locator("#ltr-logical-spacing-target")
-  const rtlSpacingTarget = site.locator("#rtl-logical-spacing-target")
-  const logicalSpacing = inspector
-    .locator('.designer-inspector__spacing-card[data-source-tokens~="ps-2"]')
-    .filter({ hasText: "Padding" })
 
-  await ltrSpacingTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 72,
-    pointerType: "mouse",
-  })
-  await expect(logicalSpacing.locator("div", { hasText: /^Left2$/ })).toBeVisible()
-  await expect(logicalSpacing.locator("div", { hasText: /^Right3$/ })).toBeVisible()
-  await rtlSpacingTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 73,
-    pointerType: "mouse",
-  })
-  await expect(logicalSpacing.locator("div", { hasText: /^Left3$/ })).toBeVisible()
-  await expect(logicalSpacing.locator("div", { hasText: /^Right2$/ })).toBeVisible()
-  await ltrSpacingTarget.evaluate((element) => element.remove())
-  await rtlSpacingTarget.evaluate((element) => element.remove())
+  test("Given page actions and pre-existing capture handlers, inspection selects without activating them", async ({
+    page,
+  }) => {
+    const site = page.frameLocator('iframe[title="/menu/"]')
+    await site.locator("body").evaluate((body) => {
+      const document = body.ownerDocument
+      const view = document.defaultView
+      if (view === null) {
+        throw new Error("Expected an iframe window")
+      }
+      const counts = { document: 0, form: 0, state: 0, window: 0 }
+      Object.assign(view, { actionCounts: counts })
+      view.addEventListener("pointerdown", () => counts.window++, true)
+      document.addEventListener("pointerdown", () => counts.document++, true)
 
-  await site.locator("body").evaluate((body) => {
-    const style = body.ownerDocument.createElement("style")
-    style.dataset.testLogicalAxes = ""
-    style.textContent = `
-      .write-vertical-right { writing-mode: vertical-rl; }
-      @media (min-width: 48rem) { #responsive-direction-target { direction: rtl; } }
-    `
-    body.ownerDocument.head.append(style)
+      const controls = document.createElement("section")
+      controls.style.cssText =
+        "position:fixed;inset:8px auto auto 8px;z-index:9999;display:grid;gap:8px;padding:8px;background:white"
+      const link = document.createElement("a")
+      link.id = "action-link"
+      link.className = "action-link"
+      link.href = "/story/"
+      link.textContent = "Action link"
 
-    const vertical = body.ownerDocument.createElement("aside")
-    vertical.id = "vertical-logical-target"
-    vertical.className = "write-vertical-right ps-4 border-s-2 rounded-ss-lg"
-    vertical.textContent = "Vertical logical properties"
-    body.append(vertical)
-  })
-  const verticalLogicalTarget = site.locator("#vertical-logical-target")
-  await verticalLogicalTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 77,
-    pointerType: "mouse",
-  })
-  await expect(
-    inspector
-      .locator('.designer-inspector__spacing-card[data-source-tokens~="ps-4"]')
-      .locator("div", { hasText: /^Top4$/ }),
-  ).toBeVisible()
-  await expect(inspector.locator('dd[data-source-tokens="border-s-2"]')).toHaveText("2")
-  await expect(inspector.locator("dt", { hasText: /^Top right$/ })).toHaveText("Top right")
-  await verticalLogicalTarget.evaluate((element) => element.remove())
-
-  await viewportBreakpoint.selectOption("Default")
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "responsive-direction-target"
-    target.className = "ps-4 md:[direction:rtl]"
-    target.textContent = "Responsive direction"
-    body.append(target)
-  })
-  const responsiveDirectionTarget = site.locator("#responsive-direction-target")
-  await responsiveDirectionTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 78,
-    pointerType: "mouse",
-  })
-  const responsiveDirectionSpacing = inspector.locator(
-    '.designer-inspector__spacing-card[data-source-tokens~="ps-4"]',
-  )
-  await expect(responsiveDirectionSpacing.locator("div", { hasText: /^Left4$/ })).toBeVisible()
-  await viewportBreakpoint.selectOption("md")
-  await expect(responsiveDirectionSpacing.locator("div", { hasText: /^Right4$/ })).toBeVisible()
-  await responsiveDirectionTarget.evaluate((element) => element.remove())
-  await site.locator("style[data-test-logical-axes]").evaluate((element) => element.remove())
-  await viewportBreakpoint.selectOption("Default")
-  await heading.click({ force: true })
-  await expectInspectorClassName(headingClassName ?? "")
-
-  const disconnectedTarget = site.locator("#disconnected-inspection-target")
-  await site.locator("body").evaluate((body) => {
-    const target = body.ownerDocument.createElement("aside")
-    target.id = "disconnected-inspection-target"
-    target.className = "disconnected-selection"
-    target.textContent = "Temporary target"
-    body.append(target)
-  })
-  await disconnectedTarget.hover({ force: true })
-  await disconnectedTarget.dispatchEvent("pointerdown", {
-    button: 0,
-    pointerId: 74,
-    pointerType: "mouse",
-  })
-  await expectInspectorClassName("disconnected-selection")
-  await expect(inspector.getByText("Unknown", { exact: true })).toBeVisible()
-  await expect(selectedOverlay).toHaveCSS("display", "block")
-  await disconnectedTarget.evaluate((element) => element.remove())
-  await expect(inspector).toHaveCount(0)
-  await expect(selectedOverlay).toHaveCSS("display", "none")
-  await heading.hover({ force: true })
-  await expect(heading).toHaveAttribute("data-splatpad-inspector-hover", "")
-  await expect.poll(() => overlaySnapshot("hover", "h1")).toMatchObject({ display: "block" })
-  await heading.click({ force: true })
-  await expectInspectorClassName(headingClassName ?? "")
-
-  const viewportBeforeFailedCapture = await viewport.evaluate(
-    (element) => globalThis.getComputedStyle(element).transform,
-  )
-  await heading.evaluate((element) => {
-    const document = element.ownerDocument
-    const view = document.defaultView
-    if (view === null) {
-      throw new Error("Expected the heading document to have a window")
-    }
-
-    const capture = element as Element & {
-      setPointerCapture: (pointerId: number) => void
-    }
-    const setPointerCapture = capture.setPointerCapture
-    capture.setPointerCapture = () => {
-      throw new DOMException("Synthetic pointer capture failure", "InvalidStateError")
-    }
-    const bounds = element.getBoundingClientRect()
-    const clientX = bounds.left + bounds.width / 2
-    const clientY = bounds.top + bounds.height / 2
-
-    try {
-      element.dispatchEvent(
-        new view.PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 1,
-          buttons: 4,
-          cancelable: true,
-          clientX,
-          clientY,
-          pointerId: 4141,
-        }),
-      )
-      element.dispatchEvent(
-        new view.PointerEvent("pointermove", {
-          bubbles: true,
-          button: -1,
-          buttons: 4,
-          cancelable: true,
-          clientX: clientX + 50,
-          clientY: clientY + 50,
-          pointerId: 4141,
-        }),
-      )
-      element.dispatchEvent(
-        new view.PointerEvent("pointerup", {
-          bubbles: true,
-          button: 1,
-          cancelable: true,
-          clientX: clientX + 50,
-          clientY: clientY + 50,
-          pointerId: 4141,
-        }),
-      )
-    } finally {
-      capture.setPointerCapture = setPointerCapture
-    }
-  })
-  await expect
-    .poll(() => viewport.evaluate((element) => globalThis.getComputedStyle(element).transform))
-    .toBe(viewportBeforeFailedCapture)
-
-  const viewportBeforeControlledPan = await viewport.evaluate((element) => {
-    const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
-    return { x: transform.m41, y: transform.m42 }
-  })
-  await heading.evaluate((element) => {
-    const document = element.ownerDocument
-    const view = document.defaultView
-    const frameElement = view?.frameElement
-    if (frameElement?.tagName !== "IFRAME" || view === null) {
-      throw new Error("Expected the heading to be inside an iframe")
-    }
-    const frame = frameElement as HTMLIFrameElement
-
-    const frameBounds = frame.getBoundingClientRect()
-    const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
-    const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
-    const bounds = element.getBoundingClientRect()
-    const clientX = bounds.left + bounds.width / 2
-    const clientY = bounds.top + bounds.height / 2
-    const capture = element as Element & {
-      hasPointerCapture: (pointerId: number) => boolean
-      releasePointerCapture: (pointerId: number) => void
-      setPointerCapture: (pointerId: number) => void
-    }
-    const methods = {
-      hasPointerCapture: capture.hasPointerCapture,
-      releasePointerCapture: capture.releasePointerCapture,
-      setPointerCapture: capture.setPointerCapture,
-    }
-    capture.setPointerCapture = () => undefined
-    capture.hasPointerCapture = () => false
-    capture.releasePointerCapture = () => undefined
-
-    try {
-      element.dispatchEvent(
-        new view.PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 1,
-          buttons: 4,
-          cancelable: true,
-          clientX,
-          clientY,
-          pointerId: 4242,
-          screenX: 500_000,
-          screenY: -500_000,
-        }),
-      )
-      element.dispatchEvent(
-        new view.PointerEvent("pointermove", {
-          bubbles: true,
-          button: -1,
-          buttons: 4,
-          cancelable: true,
-          clientX: clientX + 18 / scaleX,
-          clientY: clientY + 12 / scaleY,
-          pointerId: 4242,
-          screenX: -500_000,
-          screenY: 500_000,
-        }),
-      )
-      element.dispatchEvent(
-        new view.PointerEvent("pointerup", {
-          bubbles: true,
-          button: 1,
-          cancelable: true,
-          clientX: clientX + 18 / scaleX,
-          clientY: clientY + 12 / scaleY,
-          pointerId: 4242,
-          screenX: 250_000,
-          screenY: 250_000,
-        }),
-      )
-    } finally {
-      capture.setPointerCapture = methods.setPointerCapture
-      capture.hasPointerCapture = methods.hasPointerCapture
-      capture.releasePointerCapture = methods.releasePointerCapture
-    }
-  })
-  await expect
-    .poll(async () => {
-      const transform = await viewport.evaluate((element) => {
-        const matrix = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
-        return { x: matrix.m41, y: matrix.m42 }
+      const button = document.createElement("button")
+      button.id = "state-button"
+      button.className = "state-button"
+      button.textContent = "State unchanged"
+      button.addEventListener("click", () => {
+        counts.state++
+        button.textContent = "State changed"
       })
-      return {
-        x: Math.round(transform.x - viewportBeforeControlledPan.x),
-        y: Math.round(transform.y - viewportBeforeControlledPan.y),
+
+      const form = document.createElement("form")
+      form.id = "state-form"
+      form.className = "state-form"
+      form.action = "/story/"
+      form.addEventListener("submit", () => counts.form++)
+      const submit = document.createElement("button")
+      submit.id = "submit-action"
+      submit.type = "submit"
+      submit.textContent = "Submit action"
+      form.append(submit)
+      controls.append(link, button, form)
+      body.append(controls)
+    })
+
+    await page.keyboard.press("i")
+    const linkPoint = await exposedPointOf(page, "/menu/", "#action-link")
+    await dragFrom(page, linkPoint, { x: 18, y: 0 })
+    await expect(inspector(page)).toHaveCount(0)
+    await page
+      .locator('.page-frame[data-route="/menu/"] .page-frame__interaction-surface')
+      .evaluate((surface, point) => {
+        const view = surface.ownerDocument.defaultView
+        if (view === null) {
+          throw new Error("Expected a designer window")
+        }
+        const pointerId = 6161
+        for (const type of ["pointerdown", "pointercancel", "pointerup"] as const) {
+          surface.dispatchEvent(
+            new view.PointerEvent(type, {
+              bubbles: true,
+              button: 0,
+              buttons: type === "pointerdown" ? 1 : 0,
+              cancelable: true,
+              clientX: point.x,
+              clientY: point.y,
+              pointerId,
+            }),
+          )
+        }
+      }, linkPoint)
+    await expect(inspector(page)).toHaveCount(0)
+    await page.mouse.click(linkPoint.x, linkPoint.y)
+    await expectInspectorClassName(page, "action-link")
+    const buttonPoint = await exposedPointOf(page, "/menu/", "#state-button")
+    await page.mouse.click(buttonPoint.x, buttonPoint.y)
+    await expectInspectorClassName(page, "state-button")
+    const submitPoint = await exposedPointOf(page, "/menu/", "#submit-action")
+    await page.mouse.click(submitPoint.x, submitPoint.y)
+
+    await expect(site.getByRole("button", { name: "State unchanged" })).toBeVisible()
+    await expect
+      .poll(() => site.locator("body").evaluate(() => globalThis.location.pathname))
+      .toBe("/menu/")
+    await expect
+      .poll(() =>
+        site.locator("body").evaluate(() => {
+          const counts = (
+            globalThis as typeof globalThis & {
+              actionCounts: { document: number; form: number; state: number; window: number }
+            }
+          ).actionCounts
+          return counts
+        }),
+      )
+      .toEqual({ document: 0, form: 0, state: 0, window: 0 })
+  })
+
+  test("regression: pointer-up beyond the click threshold does not select without pointer movement", async ({
+    page,
+  }) => {
+    const site = page.frameLocator('iframe[title="/menu/"]')
+    await site.locator("body").evaluate((body) => {
+      const target = body.ownerDocument.createElement("div")
+      target.id = "large-inspection-target"
+      target.className = "large-inspection-target"
+      target.style.cssText = "position:fixed;inset:0;z-index:9999;background:white"
+      body.append(target)
+    })
+
+    await page.keyboard.press("i")
+    await page
+      .locator('.page-frame[data-route="/menu/"] .page-frame__interaction-surface')
+      .evaluate((surface) => {
+        const view = surface.ownerDocument.defaultView
+        if (view === null) {
+          throw new Error("Expected a designer window")
+        }
+        const bounds = surface.getBoundingClientRect()
+        const pointerId = 7171
+        surface.dispatchEvent(
+          new view.PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            buttons: 1,
+            cancelable: true,
+            clientX: bounds.left + 40,
+            clientY: bounds.top + 40,
+            pointerId,
+          }),
+        )
+        surface.dispatchEvent(
+          new view.PointerEvent("pointerup", {
+            bubbles: true,
+            button: 0,
+            buttons: 0,
+            cancelable: true,
+            clientX: bounds.left + 52,
+            clientY: bounds.top + 40,
+            pointerId,
+          }),
+        )
+      })
+
+    await expect(inspector(page)).toHaveCount(0)
+    await expect.poll(() => visibleOutlineCount(page, "rgb(124, 58, 237)")).toBe(0)
+  })
+
+  test("Given Inspect is active, wheel gestures navigate the canvas in their requested direction", async ({
+    page,
+  }) => {
+    await page.keyboard.press("i")
+    const before = await viewportPosition(page)
+    const center = await visiblePreviewPoint(page, "pan")
+    await page.mouse.move(center.x, center.y)
+    await page.mouse.wheel(70, 110)
+
+    await expect
+      .poll(async () => {
+        const after = await viewportPosition(page)
+        return { left: after.x < before.x, up: after.y < before.y }
+      })
+      .toEqual({ left: true, up: true })
+  })
+
+  test("Given Inspect is active, Space temporarily pans and blur restores inspection", async ({
+    page,
+  }) => {
+    await page.keyboard.press("i")
+    const before = await viewportPosition(page)
+    const center = await centerOf(preview(page, "/menu/"))
+
+    await page.keyboard.down("Space")
+    await dragFrom(page, center, { x: 72, y: 48 })
+    await page.keyboard.up("Space")
+
+    await expect.poll(() => viewportPosition(page)).toEqual({ x: before.x + 72, y: before.y + 48 })
+    await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
+
+    await page.keyboard.down("Space")
+    await page.evaluate(() => globalThis.dispatchEvent(new Event("blur")))
+    await clickTarget(
+      page,
+      page.frameLocator('iframe[title="/menu/"]').getByRole("heading", { level: 1 }),
+    )
+    await expect(inspector(page)).toBeVisible()
+    await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
+    await page.keyboard.up("Space")
+  })
+
+  test("Given either tool, middle-drag pans and movement after release does not", async ({
+    page,
+  }) => {
+    const expectMiddlePan = async (tool: "inspect" | "pan"): Promise<void> => {
+      await (tool === "inspect" ? inspectTool(page) : panTool(page)).click()
+      if (tool === "inspect") {
+        await waitForInspectReady(page)
+      } else {
+        await expect(panTool(page)).toHaveAttribute("aria-pressed", "true")
+      }
+      const start = await visiblePreviewPoint(page, tool)
+      const before = await viewportPosition(page)
+      await dragFrom(page, start, { x: 64, y: 44 }, "middle")
+      await expect
+        .poll(() => viewportPosition(page))
+        .toEqual({ x: before.x + 64, y: before.y + 44 })
+
+      const released = await viewportPosition(page)
+      await page.mouse.move(start.x + 130, start.y + 110, { steps: 8 })
+      await expect.poll(() => viewportPosition(page)).toEqual(released)
+    }
+
+    await expectMiddlePan("pan")
+    await expectMiddlePan("inspect")
+  })
+
+  test("Given repeated hits, rapid clicks climb ancestors while timeout and a different target reset", async ({
+    page,
+  }) => {
+    const site = page.frameLocator('iframe[title="/menu/"]')
+    const heading = site.getByRole("heading", { level: 1 })
+    const paragraph = site.getByText("Made in small batches")
+    const classes = await heading.evaluate((element) => [
+      element.getAttribute("class") ?? "",
+      element.parentElement?.getAttribute("class") ?? "",
+      element.parentElement?.parentElement?.getAttribute("class") ?? "",
+    ])
+    const paragraphClass = await paragraph.getAttribute("class")
+
+    await page.keyboard.press("i")
+    await waitForInspectReady(page)
+    await clickTarget(page, heading)
+    await expectInspectorClassName(page, classes[0])
+    await clickTarget(page, heading)
+    await expectInspectorClassName(page, classes[1])
+    await clickTarget(page, heading)
+    await expectInspectorClassName(page, classes[2])
+
+    await page.waitForTimeout(550)
+    await clickTarget(page, heading)
+    await expectInspectorClassName(page, classes[0])
+
+    await clickTarget(page, heading)
+    await expectInspectorClassName(page, classes[1])
+    await clickTarget(page, paragraph)
+    await expectInspectorClassName(page, paragraphClass ?? "")
+    await clickTarget(page, heading)
+    await expectInspectorClassName(page, classes[0])
+  })
+
+  test("Given a full-width selection, its four-edge outline stays below floating full-height controls", async ({
+    page,
+  }) => {
+    const canvasBefore = await page.locator(".react-flow").boundingBox()
+    await preview(page, "/menu/").evaluate((iframe) => {
+      const document = (iframe as HTMLIFrameElement).contentDocument!
+      const target = document.createElement("div")
+      target.id = "full-width-target"
+      target.style.cssText =
+        "position:fixed;z-index:9999;inset:180px 0 auto;height:24px;background:white"
+      document.body.append(target)
+    })
+    await page.keyboard.press("i")
+    const headerPoint = await exposedPointOf(page, "/menu/", "#full-width-target")
+    await page.mouse.click(headerPoint.x, headerPoint.y)
+    await expect(inspector(page)).toBeVisible()
+
+    await expect
+      .poll(() => outlineSnapshot(page, "/menu/", "#full-width-target", "rgb(124, 58, 237)"))
+      .toMatchObject({ alignmentGaps: [0, 0, 0, 0] })
+    const snapshot = await outlineSnapshot(
+      page,
+      "/menu/",
+      "#full-width-target",
+      "rgb(124, 58, 237)",
+    )
+    expect(snapshot.alignmentGaps).toEqual([0, 0, 0, 0])
+    expect(snapshot.borderStyles).toEqual(["solid", "solid", "solid", "solid"])
+    expect(snapshot.borderWidths).toEqual(["2px", "2px", "2px", "2px"])
+    expect(snapshot.display).toBe("block")
+    expect(snapshot.pointerEvents).toBe("none")
+    expect(snapshot.withinFrame).toBe(true)
+    const controlLayers = await Promise.all(
+      [page.getByRole("navigation", { name: "Canvas tools" }), inspector(page)].map((element) =>
+        element.evaluate((target) => Number(globalThis.getComputedStyle(target).zIndex)),
+      ),
+    )
+    expect(controlLayers.every((zIndex) => zIndex > snapshot.zIndex)).toBe(true)
+
+    await expect(inspector(page)).toHaveCSS("top", "16px")
+    await expect(inspector(page)).toHaveCSS("bottom", "16px")
+    expect(await page.locator(".react-flow").boundingBox()).toEqual(canvasBefore)
+  })
+
+  test("regression: iframe panning ignores bogus screen coordinates", async ({ page }) => {
+    await page.keyboard.press("i")
+    const surface = page.locator(
+      '.page-frame[data-route="/menu/"] .page-frame__interaction-surface',
+    )
+    const before = await viewportPosition(page)
+    await surface.evaluate((element) => {
+      const view = element.ownerDocument.defaultView
+      if (view === null) {
+        throw new Error("Expected a designer window")
+      }
+      const bounds = element.getBoundingClientRect()
+      const clientX = bounds.left + bounds.width / 2
+      const clientY = bounds.top + bounds.height / 2
+      const capture = element as Element & {
+        hasPointerCapture: (pointerId: number) => boolean
+        releasePointerCapture: (pointerId: number) => void
+        setPointerCapture: (pointerId: number) => void
+      }
+      const methods = {
+        hasPointerCapture: capture.hasPointerCapture,
+        releasePointerCapture: capture.releasePointerCapture,
+        setPointerCapture: capture.setPointerCapture,
+      }
+      capture.setPointerCapture = () => undefined
+      capture.hasPointerCapture = () => false
+      capture.releasePointerCapture = () => undefined
+      try {
+        element.dispatchEvent(
+          new view.PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 1,
+            buttons: 4,
+            cancelable: true,
+            clientX,
+            clientY,
+            pointerId: 4242,
+            screenX: 500_000,
+            screenY: -500_000,
+          }),
+        )
+        element.dispatchEvent(
+          new view.PointerEvent("pointermove", {
+            bubbles: true,
+            button: -1,
+            buttons: 4,
+            cancelable: true,
+            clientX: clientX + 18,
+            clientY: clientY + 12,
+            pointerId: 4242,
+            screenX: -500_000,
+            screenY: 500_000,
+          }),
+        )
+        element.dispatchEvent(
+          new view.PointerEvent("pointerup", {
+            bubbles: true,
+            button: 1,
+            cancelable: true,
+            clientX: clientX + 18,
+            clientY: clientY + 12,
+            pointerId: 4242,
+          }),
+        )
+      } finally {
+        capture.setPointerCapture = methods.setPointerCapture
+        capture.hasPointerCapture = methods.hasPointerCapture
+        capture.releasePointerCapture = methods.releasePointerCapture
       }
     })
-    .toEqual({ x: 18, y: 12 })
-  await expectInspectorClassName(headingClassName ?? "")
-  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
-
-  const viewportBeforeCaptureLoss = await viewport.evaluate((element) => {
-    const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
-    return { x: transform.m41, y: transform.m42 }
+    await expect.poll(() => viewportPosition(page)).toEqual({ x: before.x + 18, y: before.y + 12 })
   })
-  await site.locator("body").evaluate((body) => {
-    const document = body.ownerDocument
-    const view = document.defaultView
-    const frameElement = view?.frameElement
-    if (frameElement?.tagName !== "IFRAME" || view === null) {
-      throw new Error("Expected the temporary target to be inside an iframe")
-    }
-    const frame = frameElement as HTMLIFrameElement
-    const target = document.createElement("button")
-    target.textContent = "Capture target"
-    body.append(target)
 
-    const frameBounds = frame.getBoundingClientRect()
-    const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
-    const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
-    const capture = target as Element & {
-      hasPointerCapture: (pointerId: number) => boolean
-      releasePointerCapture: (pointerId: number) => void
-      setPointerCapture: (pointerId: number) => void
-    }
-    capture.setPointerCapture = () => undefined
-    capture.hasPointerCapture = () => false
-    capture.releasePointerCapture = () => undefined
-    const pointerId = 4343
-
-    target.dispatchEvent(
-      new view.PointerEvent("pointerdown", {
-        bubbles: true,
-        button: 1,
-        buttons: 4,
-        cancelable: true,
-        clientX: 20,
-        clientY: 20,
-        pointerId,
-      }),
+  test("regression: every interrupted middle-pan path ends iframe panning safely", async ({
+    page,
+  }) => {
+    await page.keyboard.press("i")
+    const surface = page.locator(
+      '.page-frame[data-route="/menu/"] .page-frame__interaction-surface',
     )
-    document.dispatchEvent(
-      new view.PointerEvent("pointermove", {
-        bubbles: true,
-        button: -1,
-        buttons: 4,
-        cancelable: true,
-        clientX: 20 + 13 / scaleX,
-        clientY: 20 + 9 / scaleY,
-        pointerId,
-      }),
-    )
-    target.remove()
-    target.dispatchEvent(
-      new view.PointerEvent("lostpointercapture", {
-        bubbles: true,
-        pointerId,
-      }),
-    )
-    document.dispatchEvent(
-      new view.PointerEvent("pointermove", {
-        bubbles: true,
-        button: -1,
-        buttons: 4,
-        cancelable: true,
-        clientX: 20 + 71 / scaleX,
-        clientY: 20 + 63 / scaleY,
-        pointerId,
-      }),
-    )
-    document.dispatchEvent(
-      new view.PointerEvent("pointerup", {
-        bubbles: true,
-        button: 1,
-        cancelable: true,
-        clientX: 20 + 71 / scaleX,
-        clientY: 20 + 63 / scaleY,
-        pointerId,
-      }),
-    )
-  })
-  await expect
-    .poll(async () => {
-      const transform = await viewport.evaluate((element) => {
-        const matrix = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
-        return { x: matrix.m41, y: matrix.m42 }
-      })
-      return {
-        x: Math.round(transform.x - viewportBeforeCaptureLoss.x),
-        y: Math.round(transform.y - viewportBeforeCaptureLoss.y),
+    const beforeFailure = await viewportPosition(page)
+    await surface.evaluate((element) => {
+      const view = element.ownerDocument.defaultView
+      if (view === null) {
+        throw new Error("Expected a designer window")
+      }
+      const capture = element as Element & { setPointerCapture: (pointerId: number) => void }
+      const original = capture.setPointerCapture
+      capture.setPointerCapture = () => {
+        throw new DOMException("Synthetic pointer capture failure", "InvalidStateError")
+      }
+      try {
+        for (const [type, clientX, clientY] of [
+          ["pointerdown", 20, 20],
+          ["pointermove", 70, 70],
+          ["pointerup", 70, 70],
+        ] as const) {
+          element.dispatchEvent(
+            new view.PointerEvent(type, {
+              bubbles: true,
+              button: type === "pointerdown" || type === "pointerup" ? 1 : -1,
+              buttons: type === "pointerup" ? 0 : 4,
+              cancelable: true,
+              clientX,
+              clientY,
+              pointerId: 4141,
+            }),
+          )
+        }
+      } finally {
+        capture.setPointerCapture = original
       }
     })
-    .toEqual({ x: 13, y: 9 })
+    await expect.poll(() => viewportPosition(page)).toEqual(beforeFailure)
 
-  const viewportBeforeMiddlePan = await viewport.evaluate((element) => {
-    const transform = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
-    return { x: transform.m41, y: transform.m42 }
-  })
-  expect(Math.abs(viewportBeforeMiddlePan.x) + Math.abs(viewportBeforeMiddlePan.y)).toBeGreaterThan(
-    0,
-  )
-  const headingBounds = await heading.boundingBox()
-  expect(headingBounds).not.toBeNull()
-  await page.mouse.move(
-    (headingBounds?.x ?? 0) + (headingBounds?.width ?? 0) / 2,
-    (headingBounds?.y ?? 0) + (headingBounds?.height ?? 0) / 2,
-  )
-  await page.mouse.down({ button: "middle" })
-  await page.mouse.move(
-    (headingBounds?.x ?? 0) + (headingBounds?.width ?? 0) / 2 + 96,
-    (headingBounds?.y ?? 0) + (headingBounds?.height ?? 0) / 2 + 72,
-    { steps: 80 },
-  )
-  await page.mouse.up({ button: "middle" })
-  await expect
-    .poll(async () => {
-      const transform = await viewport.evaluate((element) => {
-        const matrix = new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform)
-        return { x: matrix.m41, y: matrix.m42 }
-      })
-      return {
-        x: Math.round(transform.x - viewportBeforeMiddlePan.x),
-        y: Math.round(transform.y - viewportBeforeMiddlePan.y),
+    const beforeLoss = await viewportPosition(page)
+    await surface.evaluate((element) => {
+      const view = element.ownerDocument.defaultView
+      if (view === null) {
+        throw new Error("Expected a designer window")
+      }
+      const capture = element as Element & {
+        hasPointerCapture: (pointerId: number) => boolean
+        releasePointerCapture: (pointerId: number) => void
+        setPointerCapture: (pointerId: number) => void
+      }
+      const methods = {
+        hasPointerCapture: capture.hasPointerCapture,
+        releasePointerCapture: capture.releasePointerCapture,
+        setPointerCapture: capture.setPointerCapture,
+      }
+      capture.setPointerCapture = () => undefined
+      capture.hasPointerCapture = () => false
+      capture.releasePointerCapture = () => undefined
+      const pointerId = 4343
+      const bounds = element.getBoundingClientRect()
+      const clientX = bounds.left + bounds.width / 2
+      const clientY = bounds.top + bounds.height / 2
+      try {
+        element.dispatchEvent(
+          new view.PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 1,
+            buttons: 4,
+            cancelable: true,
+            clientX,
+            clientY,
+            pointerId,
+          }),
+        )
+        element.dispatchEvent(
+          new view.PointerEvent("pointermove", {
+            bubbles: true,
+            button: -1,
+            buttons: 4,
+            cancelable: true,
+            clientX: clientX + 13,
+            clientY: clientY + 9,
+            pointerId,
+          }),
+        )
+        element.dispatchEvent(
+          new view.PointerEvent("lostpointercapture", { bubbles: true, pointerId }),
+        )
+        element.dispatchEvent(
+          new view.PointerEvent("pointermove", {
+            bubbles: true,
+            button: -1,
+            buttons: 4,
+            clientX: clientX + 71,
+            clientY: clientY + 63,
+            pointerId,
+          }),
+        )
+      } finally {
+        capture.setPointerCapture = methods.setPointerCapture
+        capture.hasPointerCapture = methods.hasPointerCapture
+        capture.releasePointerCapture = methods.releasePointerCapture
       }
     })
-    .toEqual({ x: 96, y: 72 })
-  await expectInspectorClassName(headingClassName ?? "")
-  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
+    await expect
+      .poll(async () => {
+        const after = await viewportPosition(page)
+        return { x: Math.round(after.x - beforeLoss.x), y: Math.round(after.y - beforeLoss.y) }
+      })
+      .toEqual({ x: 13, y: 9 })
 
-  await page.waitForTimeout(550)
-  await heading.click({ force: true })
-  await expectInspectorClassName(headingClassName ?? "")
-  await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
+    const expectInterruptedPan = async (interruption: "blur" | "pointercancel"): Promise<void> => {
+      const before = await viewportPosition(page)
+      await surface.evaluate((element, interruptionType) => {
+        const view = element.ownerDocument.defaultView
+        if (view === null) {
+          throw new Error("Expected a designer window")
+        }
+        const capture = element as Element & {
+          hasPointerCapture: (pointerId: number) => boolean
+          releasePointerCapture: (pointerId: number) => void
+          setPointerCapture: (pointerId: number) => void
+        }
+        const methods = {
+          hasPointerCapture: capture.hasPointerCapture,
+          releasePointerCapture: capture.releasePointerCapture,
+          setPointerCapture: capture.setPointerCapture,
+        }
+        capture.setPointerCapture = () => undefined
+        capture.hasPointerCapture = () => false
+        capture.releasePointerCapture = () => undefined
+        const pointerId = interruptionType === "blur" ? 4545 : 4444
+        const bounds = element.getBoundingClientRect()
+        const clientX = bounds.left + bounds.width / 2
+        const clientY = bounds.top + bounds.height / 2
+        const pointer = (type: string, x: number, y: number, buttons: number): void => {
+          element.dispatchEvent(
+            new view.PointerEvent(type, {
+              bubbles: true,
+              button: type === "pointerdown" ? 1 : -1,
+              buttons,
+              cancelable: true,
+              clientX: x,
+              clientY: y,
+              pointerId,
+            }),
+          )
+        }
+        try {
+          pointer("pointerdown", clientX, clientY, 4)
+          pointer("pointermove", clientX + 11, clientY + 7, 4)
+          if (interruptionType === "pointercancel") {
+            pointer("pointercancel", clientX + 11, clientY + 7, 0)
+          } else {
+            view.dispatchEvent(new Event("blur"))
+          }
+          pointer("pointermove", clientX + 81, clientY + 67, 4)
+        } finally {
+          capture.setPointerCapture = methods.setPointerCapture
+          capture.hasPointerCapture = methods.hasPointerCapture
+          capture.releasePointerCapture = methods.releasePointerCapture
+        }
+      }, interruption)
+      await expect
+        .poll(async () => {
+          const after = await viewportPosition(page)
+          return { x: Math.round(after.x - before.x), y: Math.round(after.y - before.y) }
+        })
+        .toEqual({ x: 11, y: 7 })
+    }
 
-  await heading.click({ force: true })
-  await expectInspectorClassName(parentClassName)
+    await expectInterruptedPan("pointercancel")
+    await expectInterruptedPan("blur")
+  })
 
-  const body = site.locator("body")
-  await body.dispatchEvent("pointerdown", { button: 0, pointerId: 1 })
-  await expect(body).toHaveAttribute("data-splatpad-inspector-selected", "")
-  await expect
-    .poll(() => overlaySnapshot("selected", "body"))
-    .toEqual({
-      alignmentGaps: [0, 0, 0, 0],
-      borderColor: "rgb(124, 58, 237)",
-      borderStyles: ["solid", "solid", "solid", "solid"],
-      borderWidths: ["2px", "2px", "2px", "2px"],
-      display: "block",
-      margin: "0px",
-      ownerIsDesigner: true,
-      pointerEvents: "none",
-      transform: "none",
-      withinFrame: true,
-      zIndex: "2147483647",
+  test("regression: transformed page CSS cannot displace or restyle an outline", async ({
+    page,
+  }) => {
+    const site = page.frameLocator('iframe[title="/menu/"]')
+    const heading = site.getByRole("heading", { level: 1 })
+    await page.keyboard.press("i")
+    await site.locator("head").evaluate((head) => {
+      const style = head.ownerDocument.createElement("style")
+      style.textContent = `
+        html { filter: opacity(.999); transform: translate(23px, 29px) scale(.97); transform-origin: 0 0; }
+        [aria-hidden="true"] { display: none !important; }
+        div { border: 11px dashed red !important; box-sizing: content-box !important; margin: 17px !important; transform: translate(23px, 29px) !important; }
+      `
+      head.append(style)
+    })
+    await hoverTarget(page, heading)
+
+    await expect
+      .poll(() => outlineSnapshot(page, "/menu/", "h1", "rgb(37, 99, 235)"))
+      .toMatchObject({
+        alignmentGaps: [0, 0, 0, 0],
+        borderStyles: ["solid", "solid", "solid", "solid"],
+        borderWidths: ["2px", "2px", "2px", "2px"],
+        display: "block",
+        pointerEvents: "none",
+        withinFrame: true,
+      })
+  })
+
+  test("regression: a selected outline continuously follows a moving target", async ({ page }) => {
+    const heading = page.frameLocator('iframe[title="/menu/"]').getByRole("heading", { level: 1 })
+    await page.keyboard.press("i")
+    await clickTarget(page, heading)
+    const before = await outlineSnapshot(page, "/menu/", "h1", "rgb(124, 58, 237)")
+
+    await heading.evaluate((element) => {
+      const target = element as HTMLElement
+      target.style.setProperty("left", "61px", "important")
+      target.style.setProperty("position", "relative", "important")
+      target.style.setProperty("top", "37px", "important")
     })
 
-  await page.keyboard.press("Escape")
-  await expect(inspector).toHaveCount(0)
-  await expect(heading).not.toHaveAttribute("data-splatpad-inspector-selected", "")
-
-  const link = site.getByRole("link", { name: "Story" })
-  const linkClassName = await link.getAttribute("class")
-  await link.click({ force: true })
-  await expectInspectorClassName(linkClassName ?? "")
-  await expect.poll(() => link.evaluate(() => globalThis.location.pathname)).toBe("/menu/")
-
-  await inspectTool.focus()
-  await page.keyboard.down("Space")
-  await expect(preview).toHaveCSS("pointer-events", "none")
-  await page.keyboard.up("Space")
-  await expect(preview).toHaveCSS("pointer-events", "auto")
-
-  await page.keyboard.press("v")
-  await expect(panTool).toHaveAttribute("aria-pressed", "true")
-  await expect(preview).toHaveCSS("pointer-events", "none")
-  await expect(inspector).toHaveCount(0)
-  await expect(link).not.toHaveAttribute("data-splatpad-inspector-selected", "")
+    await expect
+      .poll(() => outlineSnapshot(page, "/menu/", "h1", "rgb(124, 58, 237)"))
+      .toMatchObject({ alignmentGaps: [0, 0, 0, 0] })
+    expect(before.alignmentGaps).toEqual([0, 0, 0, 0])
+  })
 })

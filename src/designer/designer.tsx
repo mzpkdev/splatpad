@@ -9,11 +9,11 @@ import {
   inspectWind4ClassName,
   resolveViewportSemanticCards,
   resolveViewportSpacing,
+  spacingSides,
 } from "./wind4-inspector"
-import { spacingSides } from "./wind4-inspector"
 import type {
-  SpacingSummary,
   SemanticCardSummary,
+  SpacingSummary,
   UtilitySection,
   ViewportCondition,
   ViewportOption,
@@ -38,52 +38,27 @@ interface InspectedElement {
 }
 
 interface PageNodeData extends Record<string, unknown> {
-  clearInspection: number
   contentHeight: number
   inspecting: boolean
   interactive: boolean
-  onActivateTool: (tool: DesignerTool) => void
-  onClearInspection: () => void
   onHeight: (route: string, height: number) => void
-  onInspect: (inspection: InspectedElement) => void
+  onInspect: (inspection: InspectedElement, select?: () => void) => void
   onInvalidate: (route: string) => void
   onPanEnd: () => void
   onPanMove: (position: { x: number; y: number }) => void
   onPanStart: (position: { x: number; y: number }) => void
-  onSpacePanning: (active: boolean) => void
+  onRegisterSelectionClear: (route: string, clear: (() => void) | undefined) => void
   route: string
+  selectedRoute: string | undefined
+  selectionGeneration: number
   viewportWidth: number
 }
 
 type PageNode = Node<PageNodeData, "page">
 
-const hoverAttribute = "data-splatpad-inspector-hover"
-const selectedAttribute = "data-splatpad-inspector-selected"
 const overlayAttribute = "data-splatpad-inspector-overlay"
-const inspectorStyleId = "splatpad-inspector-styles"
 const inspectionClickStreakMs = 500
-
-const eventElement = (event: Event, document: Document): Element | undefined => {
-  const ElementConstructor = document.defaultView?.Element
-  return ElementConstructor !== undefined && event.target instanceof ElementConstructor
-    ? event.target
-    : undefined
-}
-
-const installInspectorStyles = (document: Document): HTMLStyleElement => {
-  const existing = document.querySelector<HTMLStyleElement>(`#${inspectorStyleId}`)
-  if (existing !== null) {
-    return existing
-  }
-
-  const style = document.createElement("style")
-  style.id = inspectorStyleId
-  style.textContent = `
-    * { cursor: crosshair !important; }
-  `
-  document.head.append(style)
-  return style
-}
+const inspectionClickMovement = 4
 
 const documentHeight = (document: Document): number => {
   const body = document.body
@@ -97,74 +72,74 @@ const documentHeight = (document: Document): number => {
   )
 }
 
-const pointerPosition = (
-  frame: HTMLIFrameElement,
-  event: PointerEvent,
-): { x: number; y: number } => {
-  const bounds = frame.getBoundingClientRect()
-  const scaleX = frame.offsetWidth === 0 ? 1 : bounds.width / frame.offsetWidth
-  const scaleY = frame.offsetHeight === 0 ? 1 : bounds.height / frame.offsetHeight
-  return {
-    x: bounds.left + event.clientX * scaleX,
-    y: bounds.top + event.clientY * scaleY,
-  }
-}
-
 const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const {
     inspecting,
-    onActivateTool,
-    onClearInspection,
     onInspect,
     onInvalidate,
     onPanEnd,
     onPanMove,
     onPanStart,
-    onSpacePanning,
     route,
     viewportWidth,
   } = data
   const frameRef = useRef<HTMLIFrameElement | null>(null)
+  const interactionSurfaceRef = useRef<HTMLDivElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
   const hoveredElement = useRef<Element | undefined>(undefined)
   const hitElement = useRef<Element | undefined>(undefined)
   const lastInspectionClick = useRef<number | undefined>(undefined)
   const selectedElement = useRef<Element | undefined>(undefined)
-  const middlePan = useRef<{ capture: Element; pointerId: number } | undefined>(undefined)
+  const middlePan = useRef<{ capture: HTMLDivElement; pointerId: number } | undefined>(undefined)
+  const primaryInspection = useRef<
+    | {
+        element: Element
+        pointerId: number
+        start: { x: number; y: number }
+      }
+    | undefined
+  >(undefined)
   const updateOverlays = useRef<() => void>(() => undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
   const disconnectSelectionRefresh = useRef<() => void>(() => undefined)
 
   const inspectElement = useCallback(
-    (element: Element): void => {
-      const frame = frameRef.current
-      if (frame === null) {
-        return
-      }
-      const document = frame.contentDocument
-      if (document === null || !element.isConnected || element.ownerDocument !== document) {
+    (element: Element, select?: () => void): void => {
+      const document = frameRef.current?.contentDocument
+      if (document === null || document === undefined || !element.isConnected) {
         return
       }
       const computedStyle = document.defaultView?.getComputedStyle(element)
-      onInspect({
-        className: element.getAttribute("class") ?? "",
-        direction: computedStyle?.direction === "rtl" ? "rtl" : "ltr",
-        element,
-        route,
-        writingMode: computedStyle?.writingMode ?? "horizontal-tb",
-      })
+      onInspect(
+        {
+          className: element.getAttribute("class") ?? "",
+          direction: computedStyle?.direction === "rtl" ? "rtl" : "ltr",
+          element,
+          route,
+          writingMode: computedStyle?.writingMode ?? "horizontal-tb",
+        },
+        select,
+      )
     },
     [onInspect, route],
   )
 
   const clearMarkers = useCallback((): void => {
     disconnectSelectionRefresh.current()
-    hoveredElement.current?.removeAttribute(hoverAttribute)
-    selectedElement.current?.removeAttribute(selectedAttribute)
     hoveredElement.current = undefined
     hitElement.current = undefined
     lastInspectionClick.current = undefined
     selectedElement.current = undefined
+    primaryInspection.current = undefined
+    updateOverlays.current()
+  }, [])
+
+  const clearSelection = useCallback((): void => {
+    disconnectSelectionRefresh.current()
+    hitElement.current = undefined
+    lastInspectionClick.current = undefined
+    selectedElement.current = undefined
+    primaryInspection.current = undefined
     updateOverlays.current()
   }, [])
 
@@ -198,20 +173,14 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     [data],
   )
 
-  useEffect(() => {
-    const frame = frameRef.current
-    if (frame !== null) {
-      measureFrame(frame)
-    }
-  }, [measureFrame, viewportWidth])
-
   const connectInspector = useCallback(
     (frame: HTMLIFrameElement): void => {
       disconnectInspector.current()
       clearMarkers()
 
       const document = frame.contentDocument
-      if (document === null || !inspecting) {
+      const interactionSurface = interactionSurfaceRef.current
+      if (document === null || interactionSurface === null || !inspecting) {
         return
       }
 
@@ -223,7 +192,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         }
 
         let refreshFrame: number | undefined
-        const observer = new frameWindow.MutationObserver(() => {
+        const scheduleRefresh = (): void => {
           if (refreshFrame !== undefined) {
             return
           }
@@ -233,7 +202,8 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
               inspectElement(element)
             }
           })
-        })
+        }
+        const observer = new frameWindow.MutationObserver(scheduleRefresh)
         for (
           let current: Element | null = element;
           current !== null;
@@ -244,8 +214,24 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
             attributes: true,
           })
         }
+        if (document.head !== null) {
+          observer.observe(document.head, {
+            attributeFilter: ["disabled", "href", "media"],
+            attributes: true,
+            characterData: true,
+            childList: true,
+            subtree: true,
+          })
+        }
+        const onStylesheetLoad = (event: Event): void => {
+          if (event.target instanceof frameWindow.HTMLLinkElement) {
+            scheduleRefresh()
+          }
+        }
+        document.addEventListener("load", onStylesheetLoad, true)
         disconnectSelectionRefresh.current = () => {
           observer.disconnect()
+          document.removeEventListener("load", onStylesheetLoad, true)
           if (refreshFrame !== undefined) {
             frameWindow.cancelAnimationFrame(refreshFrame)
           }
@@ -253,7 +239,6 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         }
       }
 
-      const style = installInspectorStyles(document)
       const overlayDocument = frame.ownerDocument
       const overlayWindow = overlayDocument.defaultView
       const hoverOverlay = overlayDocument.createElement("div")
@@ -279,8 +264,8 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           overlay.style.setProperty(property, value, "important")
         }
       }
-      prepareOverlay(hoverOverlay, "#2563eb", 2_147_483_646)
-      prepareOverlay(selectedOverlay, "#7c3aed", 2_147_483_647)
+      prepareOverlay(hoverOverlay, "#2563eb", 8)
+      prepareOverlay(selectedOverlay, "#7c3aed", 8)
       overlayDocument.body.append(hoverOverlay, selectedOverlay)
 
       const positionOverlay = (overlay: HTMLDivElement, element: Element | undefined): void => {
@@ -371,87 +356,123 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         onPanEnd()
       }
 
-      const onPointerOver = (event: PointerEvent): void => {
-        const element = eventElement(event, document)
+      const hitTest = (event: PointerEvent): Element | undefined => {
+        const bounds = frame.getBoundingClientRect()
+        const scaleX = frame.offsetWidth === 0 ? 1 : bounds.width / frame.offsetWidth
+        const scaleY = frame.offsetHeight === 0 ? 1 : bounds.height / frame.offsetHeight
+        const x = (event.clientX - bounds.left) / scaleX - frame.clientLeft
+        const y = (event.clientY - bounds.top) / scaleY - frame.clientTop
+        return document.elementFromPoint(x, y) ?? undefined
+      }
+
+      const onPointerMove = (event: PointerEvent): void => {
+        event.preventDefault()
+        event.stopPropagation()
+        const current = middlePan.current
+        if (current !== undefined && current.pointerId === event.pointerId) {
+          onPanMove({ x: event.clientX, y: event.clientY })
+          return
+        }
+
+        const candidate = primaryInspection.current
+        if (
+          candidate !== undefined &&
+          candidate.pointerId === event.pointerId &&
+          Math.hypot(event.clientX - candidate.start.x, event.clientY - candidate.start.y) >
+            inspectionClickMovement
+        ) {
+          primaryInspection.current = undefined
+        }
+
+        const element = hitTest(event)
         if (element === undefined || element === hoveredElement.current) {
           return
         }
 
-        hoveredElement.current?.removeAttribute(hoverAttribute)
         hoveredElement.current = element
-        element.setAttribute(hoverAttribute, "")
         updateOverlayPositions()
       }
 
-      const onPointerOut = (event: PointerEvent): void => {
-        if (event.relatedTarget !== null) {
+      const onPointerLeave = (): void => {
+        if (middlePan.current !== undefined) {
           return
         }
-        hoveredElement.current?.removeAttribute(hoverAttribute)
+        primaryInspection.current = undefined
         hoveredElement.current = undefined
         updateOverlayPositions()
       }
 
       const onPointerDown = (event: PointerEvent): void => {
         event.preventDefault()
-        event.stopImmediatePropagation()
-
-        const element = eventElement(event, document)
+        event.stopPropagation()
+        const element = hitTest(event)
         if (event.button === 1) {
-          const capture = element ?? document.documentElement
           try {
-            capture.setPointerCapture(event.pointerId)
+            interactionSurface.setPointerCapture(event.pointerId)
           } catch {
             middlePan.current = undefined
             onPanEnd()
             return
           }
-          middlePan.current = { capture, pointerId: event.pointerId }
-          capture.addEventListener("lostpointercapture", onLostPointerCapture)
-          onPanStart(pointerPosition(frame, event))
+          middlePan.current = { capture: interactionSurface, pointerId: event.pointerId }
+          interactionSurface.addEventListener("lostpointercapture", onLostPointerCapture)
+          onPanStart({ x: event.clientX, y: event.clientY })
           return
         }
         if (event.button !== 0 || element === undefined) {
           return
         }
 
+        primaryInspection.current = {
+          element,
+          pointerId: event.pointerId,
+          start: { x: event.clientX, y: event.clientY },
+        }
+      }
+
+      const blockAction = (event: Event): void => {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+
+      const onPointerUp = (event: PointerEvent): void => {
+        endMiddlePan(event.pointerId, true)
+        blockAction(event)
+        const candidate = primaryInspection.current
+        primaryInspection.current = undefined
+        if (
+          event.button !== 0 ||
+          candidate === undefined ||
+          candidate.pointerId !== event.pointerId ||
+          Math.hypot(event.clientX - candidate.start.x, event.clientY - candidate.start.y) >
+            inspectionClickMovement ||
+          hitTest(event) !== candidate.element
+        ) {
+          return
+        }
+
         const currentSelection = selectedElement.current
         const continuesClickStreak =
-          hitElement.current === element &&
+          hitElement.current === candidate.element &&
           currentSelection !== undefined &&
           lastInspectionClick.current !== undefined &&
           event.timeStamp - lastInspectionClick.current <= inspectionClickStreakMs
         const nextSelection =
           continuesClickStreak && currentSelection !== undefined
             ? (currentSelection.parentElement ?? currentSelection)
-            : element
-        selectedElement.current?.removeAttribute(selectedAttribute)
-        hitElement.current = element
-        lastInspectionClick.current = event.timeStamp
-        selectedElement.current = nextSelection
-        nextSelection.setAttribute(selectedAttribute, "")
-        connectSelectionRefresh(nextSelection)
-        updateOverlayPositions()
-        inspectElement(nextSelection)
+            : candidate.element
+
+        inspectElement(nextSelection, () => {
+          hitElement.current = candidate.element
+          lastInspectionClick.current = event.timeStamp
+          selectedElement.current = nextSelection
+          connectSelectionRefresh(nextSelection)
+          updateOverlayPositions()
+        })
       }
 
-      const blockAction = (event: Event): void => {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-      }
-
-      const onPointerMove = (event: PointerEvent): void => {
-        const current = middlePan.current
-        if (current === undefined || current.pointerId !== event.pointerId) {
-          return
-        }
-
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        onPanMove(pointerPosition(frame, event))
-      }
-
-      const onPointerUp = (event: PointerEvent): void => {
+      const onPointerCancel = (event: PointerEvent): void => {
+        primaryInspection.current = undefined
         endMiddlePan(event.pointerId, true)
         blockAction(event)
       }
@@ -460,102 +481,47 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         endMiddlePan((event as PointerEvent).pointerId, false)
       }
 
-      const onWheel = (event: WheelEvent): void => {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-
-        const frameBounds = frame.getBoundingClientRect()
-        const scale = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
-        frame.dispatchEvent(
-          new WheelEvent("wheel", {
-            bubbles: true,
-            cancelable: true,
-            clientX: frameBounds.left + event.clientX * scale,
-            clientY: frameBounds.top + event.clientY * scale,
-            ctrlKey: event.ctrlKey,
-            deltaMode: event.deltaMode,
-            deltaX: event.deltaX,
-            deltaY: event.deltaY,
-            metaKey: event.metaKey,
-            shiftKey: event.shiftKey,
-          }),
-        )
-      }
-
-      const onKeyDown = (event: KeyboardEvent): void => {
-        if (event.altKey || event.ctrlKey || event.metaKey) {
-          blockAction(event)
-          return
-        }
-
-        switch (event.key.toLowerCase()) {
-          case "v":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            frame.ownerDocument.defaultView?.focus()
-            onActivateTool("pan")
-            break
-          case "i":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            break
-          case "escape":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            onClearInspection()
-            break
-          case " ":
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            onSpacePanning(true)
-            break
-          default:
-            blockAction(event)
+      const abortMiddlePan = (): void => {
+        const current = middlePan.current
+        if (current !== undefined) {
+          endMiddlePan(current.pointerId, true)
         }
       }
 
-      const onKeyUp = (event: KeyboardEvent): void => {
-        if (event.key === " ") {
-          onSpacePanning(false)
+      const onVisibilityChange = (): void => {
+        if (overlayDocument.visibilityState !== "visible") {
+          abortMiddlePan()
         }
-        blockAction(event)
       }
 
-      document.addEventListener("pointerover", onPointerOver, true)
-      document.addEventListener("pointerout", onPointerOut, true)
-      document.addEventListener("pointerdown", onPointerDown, true)
-      document.addEventListener("pointermove", onPointerMove, true)
-      document.addEventListener("pointerup", onPointerUp, true)
-      document.addEventListener("pointercancel", onPointerUp, true)
-      document.addEventListener("click", blockAction, true)
-      document.addEventListener("auxclick", blockAction, true)
-      document.addEventListener("dblclick", blockAction, true)
-      document.addEventListener("contextmenu", blockAction, true)
-      document.addEventListener("submit", blockAction, true)
-      document.addEventListener("wheel", onWheel, { capture: true, passive: false })
-      document.addEventListener("keydown", onKeyDown, true)
-      document.addEventListener("keyup", onKeyUp, true)
+      interactionSurface.addEventListener("pointermove", onPointerMove)
+      interactionSurface.addEventListener("pointerleave", onPointerLeave)
+      interactionSurface.addEventListener("pointerdown", onPointerDown)
+      interactionSurface.addEventListener("pointerup", onPointerUp)
+      interactionSurface.addEventListener("pointercancel", onPointerCancel)
+      interactionSurface.addEventListener("click", blockAction)
+      interactionSurface.addEventListener("auxclick", blockAction)
+      interactionSurface.addEventListener("dblclick", blockAction)
+      interactionSurface.addEventListener("contextmenu", blockAction)
+      overlayWindow?.addEventListener("blur", abortMiddlePan)
+      overlayDocument.addEventListener("visibilitychange", onVisibilityChange)
 
       disconnectInspector.current = () => {
-        document.removeEventListener("pointerover", onPointerOver, true)
-        document.removeEventListener("pointerout", onPointerOut, true)
-        document.removeEventListener("pointerdown", onPointerDown, true)
-        document.removeEventListener("pointermove", onPointerMove, true)
-        document.removeEventListener("pointerup", onPointerUp, true)
-        document.removeEventListener("pointercancel", onPointerUp, true)
-        document.removeEventListener("click", blockAction, true)
-        document.removeEventListener("auxclick", blockAction, true)
-        document.removeEventListener("dblclick", blockAction, true)
-        document.removeEventListener("contextmenu", blockAction, true)
-        document.removeEventListener("submit", blockAction, true)
-        document.removeEventListener("wheel", onWheel, true)
-        document.removeEventListener("keydown", onKeyDown, true)
-        document.removeEventListener("keyup", onKeyUp, true)
+        interactionSurface.removeEventListener("pointermove", onPointerMove)
+        interactionSurface.removeEventListener("pointerleave", onPointerLeave)
+        interactionSurface.removeEventListener("pointerdown", onPointerDown)
+        interactionSurface.removeEventListener("pointerup", onPointerUp)
+        interactionSurface.removeEventListener("pointercancel", onPointerCancel)
+        interactionSurface.removeEventListener("click", blockAction)
+        interactionSurface.removeEventListener("auxclick", blockAction)
+        interactionSurface.removeEventListener("dblclick", blockAction)
+        interactionSurface.removeEventListener("contextmenu", blockAction)
+        overlayWindow?.removeEventListener("blur", abortMiddlePan)
+        overlayDocument.removeEventListener("visibilitychange", onVisibilityChange)
         disconnectSelectionRefresh.current()
         if (overlayFrame !== undefined) {
           overlayWindow?.cancelAnimationFrame(overlayFrame)
         }
-        style.remove()
         const currentPan = middlePan.current
         if (currentPan !== undefined) {
           endMiddlePan(currentPan.pointerId, true)
@@ -571,17 +537,18 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       clearMarkers,
       inspecting,
       inspectElement,
-      onActivateTool,
-      onClearInspection,
-      onInspect,
       onInvalidate,
       onPanEnd,
       onPanMove,
       onPanStart,
-      onSpacePanning,
       route,
     ],
   )
+
+  useEffect(() => {
+    data.onRegisterSelectionClear(route, clearSelection)
+    return () => data.onRegisterSelectionClear(route, undefined)
+  }, [clearSelection, data, route])
 
   useEffect(() => {
     const frame = frameRef.current
@@ -592,25 +559,31 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   }, [connectInspector])
 
   useEffect(() => {
-    clearMarkers()
-  }, [clearMarkers, data.clearInspection])
+    if (data.selectedRoute !== route) {
+      disconnectSelectionRefresh.current()
+      selectedElement.current = undefined
+      hitElement.current = undefined
+      lastInspectionClick.current = undefined
+      updateOverlays.current()
+    }
+  }, [data.selectedRoute, data.selectionGeneration, route])
 
   useEffect(() => {
+    const frame = frameRef.current
+    if (frame !== null) {
+      measureFrame(frame)
+    }
     const element = selectedElement.current
     if (element === undefined) {
       return
     }
     const refreshFrame = requestAnimationFrame(() => {
-      if (element !== selectedElement.current || !element.isConnected) {
-        if (element === selectedElement.current) {
-          onInvalidate(route)
-        }
-        return
+      if (element === selectedElement.current && element.isConnected) {
+        inspectElement(element)
       }
-      inspectElement(element)
     })
     return () => cancelAnimationFrame(refreshFrame)
-  }, [inspectElement, onInvalidate, route, viewportWidth])
+  }, [inspectElement, measureFrame, viewportWidth])
 
   useEffect(
     () => () => {
@@ -642,6 +615,12 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         tabIndex={-1}
         title={data.route}
       />
+      <div
+        aria-hidden="true"
+        className="page-frame__interaction-surface"
+        ref={interactionSurfaceRef}
+        style={{ height: data.contentHeight, width: viewportWidth }}
+      />
     </article>
   )
 })
@@ -654,11 +633,11 @@ const resolveColorVariables = (
   style: CSSStyleDeclaration,
   seen = new Set<string>(),
 ): string | undefined => {
-  let resolvedValue = ""
+  let result = ""
   let cursor = 0
-  let start = value.indexOf("var(", cursor)
+  let start = value.indexOf("var(")
   while (start >= 0) {
-    resolvedValue += value.slice(cursor, start)
+    result += value.slice(cursor, start)
     let depth = 1
     let end = start + 4
     let comma = -1
@@ -675,105 +654,80 @@ const resolveColorVariables = (
       return undefined
     }
     const close = end - 1
-    const nameEnd = comma < 0 ? close : comma
-    const name = value.slice(start + 4, nameEnd).trim()
-    const declared = style.getPropertyValue(name).trim()
+    const name = value.slice(start + 4, comma < 0 ? close : comma).trim()
     const fallback = comma < 0 ? "" : value.slice(comma + 1, close).trim()
-    const resolved = declared || fallback
-    if (!name.startsWith("--") || resolved === "" || seen.has(name)) {
+    const replacement = style.getPropertyValue(name).trim() || fallback
+    if (!name.startsWith("--") || replacement === "" || seen.has(name)) {
       return undefined
     }
-    const nested = resolveColorVariables(resolved, style, new Set([...seen, name]))
+    const nested = resolveColorVariables(replacement, style, new Set([...seen, name]))
     if (nested === undefined) {
       return undefined
     }
-    resolvedValue += nested
+    result += nested
     cursor = end
     start = value.indexOf("var(", cursor)
   }
-  return resolvedValue + value.slice(cursor)
+  return result + value.slice(cursor)
 }
 
-const SpacingCard = ({
-  allTokens,
-  name,
-  summary,
-}: {
-  allTokens: string[]
-  name: "Margin" | "Padding"
-  summary: SpacingSummary
-}) => {
-  return (
-    <article
-      className="designer-inspector__spacing-card"
-      data-active-source-tokens={summary.tokens.join(" ")}
-      data-source-tokens={allTokens.join(" ")}
-    >
-      <div className="designer-inspector__spacing-heading">
-        <h4>{name}</h4>
-      </div>
-      <dl aria-label={`${name} values`} className="designer-inspector__spacing-values">
-        {spacingSides.map((side) => (
-          <div key={side}>
-            <dt>{side}</dt>
-            <dd
-              data-source-tokens={summary.sides[side]?.tokens.join(" ")}
-              title={summary.sides[side]?.tokens.join(", ")}
-            >
-              {summary.sides[side]?.value ?? "—"}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </article>
-  )
-}
+const SpacingCard = ({ summary }: { summary: SpacingSummary }) => (
+  <article
+    className="designer-inspector__spacing-card"
+    data-active-source-tokens={summary.tokens.join(" ")}
+    data-source-tokens={summary.tokens.join(" ")}
+  >
+    <div className="designer-inspector__spacing-heading">
+      <h4>{summary.name}</h4>
+    </div>
+    <dl aria-label={`${summary.name} values`} className="designer-inspector__spacing-values">
+      {spacingSides.map((side) => (
+        <div key={side}>
+          <dt>{side}</dt>
+          <dd
+            data-source-tokens={summary.sides[side]?.tokens.join(" ")}
+            title={summary.sides[side]?.tokens.join(", ")}
+          >
+            {summary.sides[side]?.value ?? "—"}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  </article>
+)
 
-const SemanticCard = ({
-  allTokens,
-  element,
-  summary,
-}: {
-  allTokens: string[]
-  element: Element
-  summary: SemanticCardSummary
-}) => {
+const SemanticCard = ({ element, summary }: { element: Element; summary: SemanticCardSummary }) => {
   const computedStyle = element.ownerDocument.defaultView?.getComputedStyle(element)
   const css = element.ownerDocument.defaultView?.CSS
-  const colorPaint = (semantic: SemanticCardSummary["values"][string]): string | undefined => {
-    if (semantic.colorProperty === undefined || computedStyle === undefined || css === undefined) {
+  const colorPaint = (value: SemanticCardSummary["values"][string]): string | undefined => {
+    if (value.colorProperty === undefined || computedStyle === undefined || css === undefined) {
       return undefined
     }
-    const generatedValue = semantic.generatedValue ?? semantic.value
-    const variablesResolved = resolveColorVariables(generatedValue, computedStyle)
-    if (
-      variablesResolved === undefined ||
-      !css.supports(semantic.colorProperty, variablesResolved)
-    ) {
+    const resolved = resolveColorVariables(value.generatedValue ?? value.value, computedStyle)
+    if (resolved === undefined || !css.supports(value.colorProperty, resolved)) {
       return undefined
     }
-    const paint = computedStyle.getPropertyValue(semantic.colorProperty).trim()
+    const paint = computedStyle.getPropertyValue(value.colorProperty).trim()
     return paint !== "" && css.supports("color", paint) ? paint : undefined
   }
-
   return (
     <article
       className="designer-inspector__spacing-card designer-inspector__semantic-card"
       data-active-source-tokens={summary.tokens.join(" ")}
-      data-source-tokens={allTokens.join(" ")}
+      data-source-tokens={summary.tokens.join(" ")}
     >
       <div className="designer-inspector__spacing-heading">
         <h4>{summary.name}</h4>
       </div>
       <dl aria-label={`${summary.name} values`} className="designer-inspector__semantic-values">
-        {Object.entries(summary.values).map(([field, semantic]) => {
-          const paint = colorPaint(semantic)
+        {Object.entries(summary.values).map(([field, value]) => {
+          const paint = colorPaint(value)
           return (
             <div key={field}>
               <dt>{field}</dt>
               <dd
-                data-source-tokens={semantic.tokens.join(" ")}
-                title={`${semantic.generatedValue ?? semantic.value} · ${semantic.tokens.join(", ")}`}
+                data-source-tokens={value.tokens.join(" ")}
+                title={`${value.generatedValue ?? value.value} · ${value.tokens.join(", ")}`}
               >
                 {paint === undefined ? null : (
                   <span
@@ -782,7 +736,7 @@ const SemanticCard = ({
                     style={{ backgroundColor: paint }}
                   />
                 )}
-                <span className="designer-inspector__semantic-value">{semantic.value}</span>
+                <span className="designer-inspector__semantic-value">{value.value}</span>
               </dd>
             </div>
           )
@@ -793,66 +747,61 @@ const SemanticCard = ({
 }
 
 const ElementInspector = ({
-  className,
-  direction,
-  element,
+  inspection,
   viewport,
   viewportOptions,
-  writingMode,
 }: {
-  className: string
-  direction: "ltr" | "rtl"
-  element: Element
+  inspection: InspectedElement
   viewport: ViewportCondition
   viewportOptions: ViewportOption[]
-  writingMode: string
 }) => {
-  const [sections, setSections] = useState<UtilitySection[] | undefined>(undefined)
-  const [error, setError] = useState<string | undefined>(undefined)
-
+  const [sections, setSections] = useState<UtilitySection[] | undefined>()
+  const [inspectionError, setInspectionError] = useState<string | undefined>()
   useEffect(() => {
     let current = true
     setSections(undefined)
-    setError(undefined)
-    void inspectWind4ClassName(className, { direction, viewport, writingMode })
-      .then((nextSections) => {
+    setInspectionError(undefined)
+    void inspectWind4ClassName(inspection.className, {
+      direction: inspection.direction,
+      viewport,
+      writingMode: inspection.writingMode,
+    })
+      .then((next) => {
         if (current) {
-          setSections(nextSections)
+          setSections(next)
         }
       })
       .catch((reason: unknown) => {
         if (current) {
-          setError(reason instanceof Error ? reason.message : String(reason))
+          setInspectionError(reason instanceof Error ? reason.message : String(reason))
         }
       })
     return () => {
       current = false
     }
-  }, [className, direction, viewport, writingMode])
+  }, [inspection, viewport])
 
   return (
     <aside
-      aria-busy={sections === undefined && error === undefined}
+      aria-busy={sections === undefined && inspectionError === undefined}
       aria-label="Element inspector"
       className="designer-inspector"
     >
       <header className="designer-inspector__header">
         <h2>Properties</h2>
       </header>
-      {error === undefined ? null : (
+      {inspectionError === undefined ? null : (
         <p className="designer-inspector__message designer-inspector__message--error" role="alert">
-          {error}
+          {inspectionError}
         </p>
       )}
-      {error !== undefined || sections !== undefined ? null : (
+      {sections === undefined && inspectionError === undefined ? (
         <p aria-live="polite" className="designer-inspector__message" role="status">
           Reading utilities...
         </p>
-      )}
+      ) : null}
       {sections?.length === 0 ? (
-        <p aria-live="polite" className="designer-inspector__message" role="status">
-          No utility classes
-        </p>
+        <p className="designer-inspector__message">No utility classes</p>
       ) : null}
       {sections?.map((section) => (
         <section className="designer-inspector__section" key={section.name}>
@@ -866,18 +815,7 @@ const ElementInspector = ({
             >
               {resolveViewportSemanticCards(section.semantic, viewport, viewportOptions).map(
                 (summary) => (
-                  <SemanticCard
-                    allTokens={[
-                      ...new Set(
-                        section.semantic
-                          .filter(({ card }) => card === summary.name)
-                          .map(({ token }) => token),
-                      ),
-                    ]}
-                    element={element}
-                    key={summary.name}
-                    summary={summary}
-                  />
+                  <SemanticCard element={inspection.element} key={summary.name} summary={summary} />
                 ),
               )}
             </div>
@@ -896,12 +834,7 @@ const ElementInspector = ({
                   viewport,
                   viewportOptions,
                 )
-                const allTokens = section.spacing
-                  .filter((candidate) => candidate.name === name)
-                  .flatMap(({ tokens }) => tokens)
-                return summary === undefined ? null : (
-                  <SpacingCard allTokens={allTokens} key={name} name={name} summary={summary} />
-                )
+                return summary === undefined ? null : <SpacingCard key={name} summary={summary} />
               })}
             </div>
           )}
@@ -976,7 +909,7 @@ const Designer = () => {
   const [tool, setTool] = useState<DesignerTool>("pan")
   const [spacePanning, setSpacePanning] = useState(false)
   const [inspection, setInspection] = useState<InspectedElement | undefined>(undefined)
-  const [clearInspection, setClearInspection] = useState(0)
+  const [selectionGeneration, setSelectionGeneration] = useState(0)
   const [viewportOptions, setViewportOptions] = useState<ViewportOption[]>([])
   const [viewport, setViewport] = useState<ViewportCondition>("Default")
   const flow = useRef<ReactFlowInstance<PageNode> | undefined>(undefined)
@@ -988,6 +921,7 @@ const Designer = () => {
     | undefined
   >(undefined)
   const fittedRoutes = useRef("")
+  const selectionClears = useRef(new Map<string, () => void>())
   const viewportOption = viewportOptions.find(({ condition }) => condition === viewport)
 
   useEffect(() => {
@@ -1047,10 +981,40 @@ const Designer = () => {
     setHeights((current) => (current[route] === height ? current : { ...current, [route]: height }))
   }, [])
 
-  const clearSelectedElement = useCallback((): void => {
-    setInspection(undefined)
-    setClearInspection((current) => current + 1)
+  const clearAllFrameSelections = useCallback((): void => {
+    for (const clear of selectionClears.current.values()) {
+      clear()
+    }
   }, [])
+
+  const clearSelectedElement = useCallback((): void => {
+    clearAllFrameSelections()
+    setInspection(undefined)
+    setSelectionGeneration((current) => current + 1)
+  }, [clearAllFrameSelections])
+
+  const inspectElement = useCallback(
+    (nextInspection: InspectedElement, select?: () => void): void => {
+      if (select !== undefined) {
+        clearAllFrameSelections()
+        select()
+      }
+      setInspection(nextInspection)
+      setSelectionGeneration((current) => current + 1)
+    },
+    [clearAllFrameSelections],
+  )
+
+  const registerSelectionClear = useCallback(
+    (route: string, clear: (() => void) | undefined): void => {
+      if (clear === undefined) {
+        selectionClears.current.delete(route)
+      } else {
+        selectionClears.current.set(route, clear)
+      }
+    },
+    [],
+  )
 
   const activateTool = useCallback(
     (nextTool: DesignerTool): void => {
@@ -1065,6 +1029,7 @@ const Designer = () => {
 
   const invalidateInspection = useCallback((route: string): void => {
     setInspection((current) => (current?.route === route ? undefined : current))
+    setSelectionGeneration((current) => current + 1)
   }, [])
 
   const startViewportPan = useCallback((pointer: { x: number; y: number }): void => {
@@ -1134,16 +1099,30 @@ const Designer = () => {
       }
     }
 
-    const onBlur = (): void => setSpacePanning(false)
+    const resetTemporaryPan = (): void => setSpacePanning(false)
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState !== "visible") {
+        resetTemporaryPan()
+      }
+    }
     window.addEventListener("keydown", onKeyDown)
     window.addEventListener("keyup", onKeyUp)
-    window.addEventListener("blur", onBlur)
+    window.addEventListener("blur", resetTemporaryPan)
+    document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
       window.removeEventListener("keydown", onKeyDown)
       window.removeEventListener("keyup", onKeyUp)
-      window.removeEventListener("blur", onBlur)
+      window.removeEventListener("blur", resetTemporaryPan)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      resetTemporaryPan()
     }
   }, [activateTool, clearSelectedElement, tool])
+
+  useEffect(() => {
+    if (inspection !== undefined && !routes.some(({ route }) => route === inspection.route)) {
+      clearSelectedElement()
+    }
+  }, [clearSelectedElement, inspection, routes])
 
   const nodes = useMemo<PageNode[]>(() => {
     if (viewportOption === undefined) {
@@ -1161,20 +1140,19 @@ const Designer = () => {
       id: route,
       type: "page",
       data: {
-        clearInspection,
         contentHeight: height,
         inspecting: tool === "inspect",
         interactive: tool === "inspect" && !spacePanning,
-        onActivateTool: activateTool,
-        onClearInspection: clearSelectedElement,
         onHeight,
-        onInspect: setInspection,
+        onInspect: inspectElement,
         onInvalidate: invalidateInspection,
         onPanEnd: endViewportPan,
         onPanMove: moveViewportPan,
         onPanStart: startViewportPan,
-        onSpacePanning: setSpacePanning,
+        onRegisterSelectionClear: registerSelectionClear,
         route,
+        selectedRoute: inspection?.route,
+        selectionGeneration,
         viewportWidth: viewportOption.width,
       },
       draggable: false,
@@ -1184,19 +1162,20 @@ const Designer = () => {
       position: { x: position.x * horizontalScale, y: position.y },
     }))
   }, [
-    activateTool,
-    clearInspection,
-    clearSelectedElement,
     endViewportPan,
     heights,
+    inspectElement,
+    inspection?.route,
     invalidateInspection,
     moveViewportPan,
     onHeight,
     routes,
+    registerSelectionClear,
+    selectionGeneration,
     spacePanning,
     startViewportPan,
     tool,
-    viewportOption?.width,
+    viewportOption,
   ])
 
   useEffect(() => {
@@ -1253,7 +1232,7 @@ const Designer = () => {
         <span>Viewport</span>
         <select
           aria-label="Viewport breakpoint"
-          onChange={(event) => setViewport(event.target.value as ViewportCondition)}
+          onChange={(event) => setViewport(event.target.value)}
           value={viewport}
         >
           {viewportOptions.map((option) => (
@@ -1288,13 +1267,9 @@ const Designer = () => {
       </nav>
       {inspection === undefined ? null : (
         <ElementInspector
-          className={inspection.className}
-          direction={inspection.direction}
-          element={inspection.element}
+          inspection={inspection}
           viewport={viewport}
           viewportOptions={viewportOptions}
-          writingMode={inspection.writingMode}
-          key={`${inspection.route}\u0000${inspection.className}\u0000${inspection.direction}\u0000${inspection.writingMode}`}
         />
       )}
     </main>

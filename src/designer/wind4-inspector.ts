@@ -29,6 +29,7 @@ export interface UtilityRule {
   parents: string[]
   selector: string
   sort: number
+  sourceOrder?: number
 }
 
 export interface InspectedUtility {
@@ -69,8 +70,11 @@ export interface SemanticCandidate {
   field: string
   important: boolean
   order: number
+  property: string
   selector: string
   sort: number
+  sourceParent?: string
+  sourceOrder?: number
   token: string
   value: string
   generatedValue?: string
@@ -237,7 +241,7 @@ export const resolveViewportSpacing = (
     if (candidates.length === 0) {
       continue
     }
-    const ordered = orderCandidates(candidates, viewportOptions)
+    const ordered = orderCandidates(candidates)
     const winner = ordered.at(-1)!
     sides[side] = {
       candidates,
@@ -272,7 +276,6 @@ export const resolveViewportSemanticCards = (
       fields.map((field) => {
         const ordered = orderCandidates(
           cardCandidates.filter((candidate) => candidate.field === field),
-          viewportOptions,
         )
         const winner = ordered.at(-1)!
         return [
@@ -297,6 +300,7 @@ export const resolveViewportSemanticCards = (
 interface UtilityGenerator {
   config?: { theme?: { breakpoint?: Record<string, string> } }
   generate: UnoGenerator["generate"]
+  parentOrders?: ReadonlyMap<string, number>
 }
 
 export interface UtilityInspectionOptions {
@@ -566,22 +570,36 @@ const sourceSpacingValue = (utility: string): string | undefined => {
 
 type SpacingCandidate = SemanticCandidate
 
+type SemanticConflictGuard = (candidate: SemanticCandidate) => boolean
+
 const unique = <Value>(values: readonly Value[]): Value[] => [...new Set(values)]
 
-const compareCandidates = (
-  left: SemanticCandidate,
-  right: SemanticCandidate,
-  viewportOptions?: readonly ViewportOption[],
-): number => {
+const selectedElementSpecificity = (candidate: SemanticCandidate): number => {
+  const baseSelector = toEscapedSelector(candidate.token)
+  let specificity = 0
+  let index = candidate.selector.indexOf(baseSelector)
+  while (index !== -1) {
+    specificity += 1
+    index = candidate.selector.indexOf(baseSelector, index + baseSelector.length)
+  }
+  return specificity
+}
+
+const compareCandidates = (left: SemanticCandidate, right: SemanticCandidate): number => {
   if (left.important !== right.important) {
     return left.important ? 1 : -1
   }
-  const leftBreakpoint =
-    viewportOptions?.findIndex(({ condition }) => condition === left.condition) ?? 0
-  const rightBreakpoint =
-    viewportOptions?.findIndex(({ condition }) => condition === right.condition) ?? 0
-  if (leftBreakpoint !== rightBreakpoint) {
-    return leftBreakpoint - rightBreakpoint
+  const specificity = selectedElementSpecificity(left) - selectedElementSpecificity(right)
+  if (specificity !== 0) {
+    return specificity
+  }
+  if (left.sourceOrder !== undefined || right.sourceOrder !== undefined) {
+    const sourcePosition =
+      (left.sourceOrder ?? 0) - (right.sourceOrder ?? 0) ||
+      (left.sourceParent ?? "").localeCompare(right.sourceParent ?? "")
+    if (sourcePosition !== 0) {
+      return sourcePosition
+    }
   }
   return (
     left.order - right.order ||
@@ -657,13 +675,10 @@ const ruleContextMatchesViewport = (
 
 const orderCandidates = <Candidate extends SemanticCandidate>(
   candidates: readonly Candidate[],
-  viewportOptions?: readonly ViewportOption[],
 ): Candidate[] => {
   const ordered: Candidate[] = []
   for (const candidate of candidates) {
-    const index = ordered.findIndex(
-      (existing) => compareCandidates(candidate, existing, viewportOptions) < 0,
-    )
+    const index = ordered.findIndex((existing) => compareCandidates(candidate, existing) < 0)
     if (index === -1) {
       ordered.push(candidate)
     } else {
@@ -678,8 +693,11 @@ const createSpacingSummaries = (
   options: UtilityInspectionOptions,
   viewportBreakpoints: ReadonlySet<string>,
   viewportParents: ReadonlyMap<string, readonly string[]>,
+  hasRawConflict: SemanticConflictGuard,
 ): { consumed: Set<InspectedUtility>; spacing: SpacingSummary[] } => {
   const consumed = new Set<InspectedUtility>()
+  const directSpacingUtilities = new Set<InspectedUtility>()
+  const conflictingTokens = new Set<string>()
   const groups = new Map<
     string,
     {
@@ -749,8 +767,11 @@ const createSpacingSummaries = (
             field: `${semantic.name} ${side}`,
             important,
             order: rule.order,
+            property: declaration.property,
             selector: rule.selector,
             sort: rule.sort,
+            sourceParent: rule.parents.join(" $$ "),
+            sourceOrder: rule.sourceOrder,
             token: utility.token,
             value:
               (generatedValues.size === 1 && sourceIsSingleComponent ? sourceValue : undefined) ??
@@ -761,7 +782,17 @@ const createSpacingSummaries = (
       }
     }
     if (hasDirectSpacing) {
-      consumed.add(utility)
+      directSpacingUtilities.add(utility)
+    }
+  }
+
+  for (const { names } of groups.values()) {
+    for (const { sides } of names.values()) {
+      for (const candidate of [...sides.values()].flat()) {
+        if (hasRawConflict(candidate)) {
+          conflictingTokens.add(candidate.token)
+        }
+      }
     }
   }
 
@@ -779,7 +810,13 @@ const createSpacingSummaries = (
         if (candidates === undefined) {
           continue
         }
-        const orderedCandidates = orderCandidates(candidates)
+        const safeCandidates = candidates.filter(
+          (candidate) => !conflictingTokens.has(candidate.token),
+        )
+        if (safeCandidates.length === 0) {
+          continue
+        }
+        const orderedCandidates = orderCandidates(safeCandidates)
         const winner = orderedCandidates.at(-1)!
         const evidence = orderedCandidates
           .map(({ token }) => token)
@@ -787,14 +824,21 @@ const createSpacingSummaries = (
         evidence.forEach((token) => tokens.add(token))
         sides[side] = { candidates: orderedCandidates, tokens: evidence, value: winner.value }
       }
-      spacing.push({
-        condition,
-        conditions: group.conditions,
-        name,
-        sides,
-        sources: property.sources,
-        tokens: [...tokens],
-      })
+      if (Object.keys(sides).length > 0) {
+        spacing.push({
+          condition,
+          conditions: group.conditions,
+          name,
+          sides,
+          sources: property.sources,
+          tokens: [...tokens],
+        })
+      }
+    }
+  }
+  for (const utility of directSpacingUtilities) {
+    if (!conflictingTokens.has(utility.token)) {
+      consumed.add(utility)
     }
   }
   return { consumed, spacing }
@@ -910,6 +954,7 @@ const physicalSidesForSuffix = (
       : {
           "block-end": [axes.blockEnd],
           "block-start": [axes.blockStart],
+          block: [axes.blockStart, axes.blockEnd],
           inline: [axes.inlineStart, axes.inlineEnd],
           "inline-end": [axes.inlineEnd],
           "inline-start": [axes.inlineStart],
@@ -1125,6 +1170,290 @@ const semanticDeclarations = (
     : [{ card: "Effects", field: effects[property], value }]
 }
 
+const semanticFieldKey = (card: SemanticCardName | "Spacing", field: string): string =>
+  `${card}\0${field}`
+
+const allSemanticFieldKeys = new Set<string>([
+  ...[
+    "Alignment",
+    "Color",
+    "Family",
+    "Letter spacing",
+    "Line height",
+    "Size",
+    "Transform",
+    "Weight",
+    "Whitespace",
+  ].map((field) => semanticFieldKey("Typography", field)),
+  ...["Aspect ratio", "Height", "Max height", "Max width", "Min height", "Min width", "Width"].map(
+    (field) => semanticFieldKey("Dimensions", field),
+  ),
+  ...[
+    "Align",
+    "Align content",
+    "Column gap",
+    "Direction",
+    "Mode",
+    "Justify",
+    "Row gap",
+    "Wrap",
+  ].map((field) => semanticFieldKey("Auto Layout", field)),
+  semanticFieldKey("Fill", "Background"),
+  semanticFieldKey("Fill", "Fill"),
+  ...spacingSides.flatMap((side) =>
+    ["color", "style", "width"].map((field) => semanticFieldKey("Stroke", `${side} ${field}`)),
+  ),
+  ...["Bottom left", "Bottom right", "Top left", "Top right"].map((field) =>
+    semanticFieldKey("Corners", field),
+  ),
+  semanticFieldKey("Opacity", "Opacity"),
+  semanticFieldKey("Effects", "Blend mode"),
+  semanticFieldKey("Effects", "Isolation"),
+  ...["Margin", "Padding"].flatMap((name) =>
+    spacingSides.map((side) => semanticFieldKey("Spacing", `${name} ${side}`)),
+  ),
+])
+
+const sideFieldKeys = (
+  card: "Stroke",
+  suffix: string | undefined,
+  fields: readonly string[],
+  direction: "ltr" | "rtl",
+  writingMode: string | undefined,
+): Set<string> => {
+  const sides = physicalSidesForSuffix(suffix, direction, writingMode)
+  return new Set(
+    (sides ?? spacingSides).flatMap((side) =>
+      fields.map((field) => semanticFieldKey(card, `${side} ${field}`)),
+    ),
+  )
+}
+
+const declarationSemanticFootprint = (
+  declaration: UtilityDeclaration,
+  direction: "ltr" | "rtl",
+  writingMode: string | undefined,
+): Set<string> => {
+  const property = declaration.property.toLowerCase()
+  if (property.startsWith("--")) {
+    return new Set()
+  }
+  if (property === "all") {
+    return new Set(allSemanticFieldKeys)
+  }
+
+  const fields = new Set(
+    (semanticDeclarations(declaration, direction, writingMode) ?? []).map(({ card, field }) =>
+      semanticFieldKey(card, field),
+    ),
+  )
+  const spacing = spacingDeclaration(declaration, direction, writingMode)
+  if (spacing !== undefined) {
+    for (const side of Object.keys(spacing.sides)) {
+      fields.add(semanticFieldKey("Spacing", `${spacing.name} ${side}`))
+    }
+  }
+
+  if (property === "font") {
+    for (const field of ["Family", "Line height", "Size", "Weight"]) {
+      fields.add(semanticFieldKey("Typography", field))
+    }
+  }
+  if (property === "background") {
+    fields.add(semanticFieldKey("Fill", "Background"))
+  }
+
+  const spacingShorthand = /^(margin|padding)(?:-(.+))?$/.exec(property)
+  if (spacingShorthand !== null && spacing === undefined) {
+    const name = spacingShorthand[1] === "margin" ? "Margin" : "Padding"
+    const sides = physicalSidesForSuffix(spacingShorthand[2], direction, writingMode)
+    for (const side of sides ?? spacingSides) {
+      fields.add(semanticFieldKey("Spacing", `${name} ${side}`))
+    }
+  }
+
+  const borderShorthand =
+    /^border(?:-(top|right|bottom|left|inline|inline-start|inline-end|block|block-start|block-end))?(?:-(width|style|color))?$/.exec(
+      property,
+    )
+  if (borderShorthand !== null) {
+    const affected = sideFieldKeys(
+      "Stroke",
+      borderShorthand[1],
+      borderShorthand[2] === undefined ? ["color", "style", "width"] : [borderShorthand[2]],
+      direction,
+      writingMode,
+    )
+    affected.forEach((field) => fields.add(field))
+  }
+  if (property === "border-radius") {
+    for (const field of ["Bottom left", "Bottom right", "Top left", "Top right"]) {
+      fields.add(semanticFieldKey("Corners", field))
+    }
+  }
+  if (/^border-(?:start|end)-(?:start|end)-radius$/.test(property) && fields.size === 0) {
+    for (const field of ["Bottom left", "Bottom right", "Top left", "Top right"]) {
+      fields.add(semanticFieldKey("Corners", field))
+    }
+  }
+
+  const logicalSize = /^(min-|max-)?(inline|block)-size$/.exec(property)
+  if (logicalSize !== null) {
+    const vertical = writingMode !== undefined && writingMode !== "horizontal-tb"
+    const dimension =
+      logicalSize[2] === "inline" ? (vertical ? "Height" : "Width") : vertical ? "Width" : "Height"
+    const qualifier = logicalSize[1] === "min-" ? "Min " : logicalSize[1] === "max-" ? "Max " : ""
+    fields.add(semanticFieldKey("Dimensions", `${qualifier}${dimension}`))
+  }
+
+  if (property === "flex-flow") {
+    fields.add(semanticFieldKey("Auto Layout", "Direction"))
+    fields.add(semanticFieldKey("Auto Layout", "Wrap"))
+  }
+  if (property === "place-content") {
+    fields.add(semanticFieldKey("Auto Layout", "Align content"))
+    fields.add(semanticFieldKey("Auto Layout", "Justify"))
+  }
+  if (property === "place-items") {
+    fields.add(semanticFieldKey("Auto Layout", "Align"))
+  }
+  if (property === "gap") {
+    fields.add(semanticFieldKey("Auto Layout", "Row gap"))
+    fields.add(semanticFieldKey("Auto Layout", "Column gap"))
+  }
+  return fields
+}
+
+const isUnconditionalSelfVariant = (condition: string): boolean => /^\[&+\]$/.test(condition)
+
+const normalizedViewportConditions = (utility: InspectedUtility): string[] =>
+  utility.conditions.filter((condition) => !isUnconditionalSelfVariant(condition))
+
+const rawRuleMatchesActiveViewport = (
+  rule: UtilityRule,
+  utility: InspectedUtility,
+  viewportParents: ReadonlyMap<string, readonly string[]>,
+  viewportOptions: readonly ViewportOption[],
+  activeViewportIndex: number,
+): { condition: string } | undefined => {
+  const conditions = normalizedViewportConditions(utility)
+  if (conditions.length > 1) {
+    return undefined
+  }
+  const condition = conditions[0] ?? "Default"
+  const conditionIndex = viewportOptions.findIndex((option) => option.condition === condition)
+  if (conditionIndex < 0 || conditionIndex > activeViewportIndex) {
+    return undefined
+  }
+  const expectedParents = condition === "Default" ? [] : viewportParents.get(condition)
+  if (expectedParents === undefined) {
+    return undefined
+  }
+  const hasExpectedViewport = expectedParents.every(
+    (parent, index) => rule.parents[index] === parent,
+  )
+  const remainingParents = rule.parents.slice(expectedParents.length)
+  return hasExpectedViewport &&
+    remainingParents.every((parent) => parent.startsWith("@supports")) &&
+    selectorTargetsSelectedElement(rule.selector, utility.token)
+    ? { condition }
+    : undefined
+}
+
+const createRawConflictGuard = (
+  utilities: readonly InspectedUtility[],
+  options: UtilityInspectionOptions,
+  viewportBreakpoints: ReadonlySet<string>,
+  viewportParents: ReadonlyMap<string, readonly string[]>,
+  viewportOptions: readonly ViewportOption[],
+): SemanticConflictGuard => {
+  const activeViewportIndex = Math.max(
+    0,
+    viewportOptions.findIndex(({ condition }) => condition === (options.viewport ?? "Default")),
+  )
+  const direction = options.direction ?? "ltr"
+  const rawUtilities = utilities.filter((utility) => {
+    const ordinaryCondition =
+      utility.conditions.length <= 1 &&
+      (utility.conditions.length === 0 || viewportBreakpoints.has(utility.conditions[0]!))
+    if (!ordinaryCondition) {
+      return true
+    }
+    const directRules = utility.rules.filter(
+      (rule) =>
+        ruleContextMatchesViewport(rule, utility, viewportParents) &&
+        selectorTargetsSelectedElement(rule.selector, utility.token),
+    )
+    return (
+      directRules.length === 0 ||
+      directRules.length !== utility.rules.length ||
+      directRules.some((rule) => {
+        const declarations = rule.declarations.filter(({ property }) => !property.startsWith("--"))
+        return (
+          declarations.length === 0 ||
+          declarations.some(
+            (declaration) =>
+              semanticDeclarations(declaration, direction, options.writingMode) === undefined &&
+              (spacingDeclaration(declaration, direction, options.writingMode) === undefined ||
+                sourceSpacingValue(utility.utility) === undefined),
+          )
+        )
+      })
+    )
+  })
+
+  const competitors = rawUtilities.flatMap((utility) =>
+    utility.rules.flatMap((rule) => {
+      const context = rawRuleMatchesActiveViewport(
+        rule,
+        utility,
+        viewportParents,
+        viewportOptions,
+        activeViewportIndex,
+      )
+      if (context === undefined) {
+        return []
+      }
+      return rule.declarations.flatMap((declaration) =>
+        [...declarationSemanticFootprint(declaration, direction, options.writingMode)].map(
+          (field) => ({
+            body: rule.body,
+            card: "Dimensions" as const,
+            condition: context.condition,
+            currentSelector: rule.currentSelector,
+            field,
+            important: /\s*!important\s*$/.test(declaration.value),
+            order: rule.order,
+            property: declaration.property,
+            selector: rule.selector,
+            sort: rule.sort,
+            sourceParent: rule.parents.join(" $$ "),
+            sourceOrder: rule.sourceOrder,
+            token: utility.token,
+            value: declaration.value,
+          }),
+        ),
+      )
+    }),
+  )
+
+  return (candidate) => {
+    const field =
+      candidate.card === "Dimensions" && /^(Margin|Padding) /.test(candidate.field)
+        ? semanticFieldKey("Spacing", candidate.field)
+        : semanticFieldKey(candidate.card, candidate.field)
+    return competitors.some((competitor) => {
+      if (competitor.field !== field) {
+        return false
+      }
+      if (competitor.important !== candidate.important) {
+        return competitor.important
+      }
+      return compareCandidates(competitor, candidate) >= 0
+    })
+  }
+}
+
 const recognizedLayoutDisplays = new Set([
   "block",
   "flex",
@@ -1140,6 +1469,7 @@ const createSemanticCandidates = (
   viewportBreakpoints: ReadonlySet<string>,
   viewportParents: ReadonlyMap<string, readonly string[]>,
   viewportOptions: readonly ViewportOption[],
+  hasRawConflict: SemanticConflictGuard,
 ): { candidates: SemanticCandidate[]; consumed: Set<InspectedUtility> } => {
   const candidates: SemanticCandidate[] = []
   const consumed = new Set<InspectedUtility>()
@@ -1175,8 +1505,11 @@ const createSemanticCandidates = (
                 field: "Mode",
                 important: /\s*!important\s*$/.test(declaration.value),
                 order: rule.order,
+                property: declaration.property,
                 selector: rule.selector,
                 sort: rule.sort,
+                sourceParent: rule.parents.join(" $$ "),
+                sourceOrder: rule.sourceOrder,
                 token: utility.token,
                 value: withoutImportant(declaration.value),
               },
@@ -1185,48 +1518,81 @@ const createSemanticCandidates = (
       )
     })
   })
-  const activeDisplay = orderCandidates(displayCandidates, viewportOptions).at(-1)?.value
+  const activeDisplay = orderCandidates(displayCandidates).at(-1)?.value
   const hasLayoutDisplay =
     activeDisplay !== undefined && recognizedLayoutDisplays.has(activeDisplay)
 
-  for (const utility of utilities) {
+  const analyses = utilities.map((utility) => {
     const condition = utility.conditions[0] ?? "Default"
-    if (
-      utility.conditions.length > 1 ||
-      (utility.conditions.length === 1 && !viewportBreakpoints.has(condition))
-    ) {
-      continue
-    }
-    const directRules = utility.rules.filter(
-      (rule) =>
-        ruleContextMatchesViewport(rule, utility, viewportParents) &&
-        selectorTargetsSelectedElement(rule.selector, utility.token),
-    )
-    if (directRules.length === 0 || directRules.length !== utility.rules.length) {
-      continue
-    }
+    const conditionIsApplicable =
+      utility.conditions.length <= 1 &&
+      (utility.conditions.length === 0 || viewportBreakpoints.has(condition))
+    const directRules = conditionIsApplicable
+      ? utility.rules.filter(
+          (rule) =>
+            ruleContextMatchesViewport(rule, utility, viewportParents) &&
+            selectorTargetsSelectedElement(rule.selector, utility.token),
+        )
+      : []
     const mappedRules = directRules.map((rule) => {
       const publicDeclarations = rule.declarations.filter(
         ({ property }) => !property.startsWith("--"),
       )
-      const declarationMappings = publicDeclarations.map((declaration) =>
-        semanticDeclarations(declaration, options.direction ?? "ltr", options.writingMode),
+      const declarationMappings = publicDeclarations.map((declaration) => ({
+        declaration,
+        mappings: semanticDeclarations(
+          declaration,
+          options.direction ?? "ltr",
+          options.writingMode,
+        ),
+      }))
+      const mapped = declarationMappings.flatMap(({ declaration, mappings }) =>
+        (mappings ?? []).map((mapping) =>
+          Object.assign({ property: declaration.property }, mapping),
+        ),
       )
-      const mapped = declarationMappings.flatMap((mapping) => mapping ?? [])
       return {
-        allMapped: declarationMappings.every((mapping) => mapping !== undefined),
+        allMapped: declarationMappings.every(({ mappings }) => mappings !== undefined),
         mapped,
         publicCount: publicDeclarations.length,
         rule,
       }
     })
-    if (
-      mappedRules.some(
+    const eligible =
+      directRules.length > 0 &&
+      directRules.length === utility.rules.length &&
+      mappedRules.every(
         ({ allMapped, mapped, publicCount }) =>
-          !allMapped ||
-          publicCount === 0 ||
-          mapped.length === 0 ||
-          (!hasLayoutDisplay && mapped.some(({ card }) => card === "Auto Layout")),
+          allMapped &&
+          publicCount > 0 &&
+          mapped.length > 0 &&
+          (hasLayoutDisplay || mapped.every(({ card }) => card !== "Auto Layout")),
+      )
+    return { condition, directRules, eligible, mappedRules, utility }
+  })
+
+  for (const { condition, eligible, mappedRules, utility } of analyses) {
+    if (
+      !eligible ||
+      mappedRules.some(({ mapped, rule }) =>
+        mapped.some(({ card, field, property }) =>
+          hasRawConflict({
+            body: rule.body,
+            card,
+            condition,
+            currentSelector: rule.currentSelector,
+            field,
+            important: rule.declarations.some(({ value }) => /\s*!important\s*$/.test(value)),
+            order: rule.order,
+            property,
+            selector: rule.selector,
+            sort: rule.sort,
+            sourceParent: rule.parents.join(" $$ "),
+            sourceOrder: rule.sourceOrder,
+            token: utility.token,
+            value: "",
+          }),
+        ),
       )
     ) {
       continue
@@ -1241,8 +1607,11 @@ const createSemanticCandidates = (
           currentSelector: rule.currentSelector,
           important: rule.declarations.some(({ value }) => /\s*!important\s*$/.test(value)),
           order: rule.order,
+          property: semantic.property,
           selector: rule.selector,
           sort: rule.sort,
+          sourceParent: rule.parents.join(" $$ "),
+          sourceOrder: rule.sourceOrder,
           token: utility.token,
           ...(sourceValue === undefined || sourceValue === semantic.value
             ? {}
@@ -1276,7 +1645,9 @@ const semanticSection = (card: SemanticCardName): InspectorSectionName => {
 }
 
 export const createUtilityInspector = (generator: UtilityGenerator) => {
-  const cache = new Map<string, Promise<InspectedUtility>>()
+  const tokenCacheLimit = 256
+  const cache = new Map<string, InspectedUtility>()
+  const inFlight = new Map<string, Promise<InspectedUtility>>()
   const viewportParents = new Map(
     Object.entries(generator.config?.theme?.breakpoint ?? {}).map(([condition, width]) => [
       condition,
@@ -1292,49 +1663,66 @@ export const createUtilityInspector = (generator: UtilityGenerator) => {
   const inspectToken = (token: string): Promise<InspectedUtility> => {
     const cached = cache.get(token)
     if (cached !== undefined) {
-      return cached
+      cache.delete(token)
+      cache.set(token, cached)
+      return Promise.resolve(cached)
+    }
+    const pending = inFlight.get(token)
+    if (pending !== undefined) {
+      return pending
     }
 
     const inspection = (async (): Promise<InspectedUtility> => {
-      const generated = await generator.generate([token], {
-        extendedInfo: true,
-        preflights: false,
-      })
-      const data = generated.matched.get(token)?.data ?? []
-      const rules = data.flatMap(([order, selector, body, parent, meta, context]) => {
-        if (selector === undefined || selector.startsWith("@")) {
-          return []
+      try {
+        const generated = await generator.generate([token], {
+          extendedInfo: true,
+          preflights: false,
+        })
+        const data = generated.matched.get(token)?.data ?? []
+        const rules = data.flatMap(([order, selector, body, parent, meta, context]) => {
+          if (selector === undefined || selector.startsWith("@")) {
+            return []
+          }
+          const declarations = parseDeclarations(body)
+          return declarations.length === 0
+            ? []
+            : [
+                {
+                  body,
+                  ...(context?.currentSelector === undefined
+                    ? {}
+                    : { currentSelector: context.currentSelector }),
+                  declarations,
+                  order,
+                  parents: parent === undefined ? [] : parent.split(" $$ "),
+                  selector,
+                  sort: typeof meta?.sort === "number" ? meta.sort : 0,
+                  ...(generator.parentOrders?.get(parent ?? "") === undefined
+                    ? {}
+                    : { sourceOrder: generator.parentOrders.get(parent ?? "") }),
+                },
+              ]
+        })
+        const declarations = rules.flatMap((rule) => rule.declarations)
+        const tokenParts = parseTokenParts(token)
+        const inspected: InspectedUtility = {
+          conditions: tokenParts.conditions,
+          known: rules.length > 0,
+          rules,
+          section: sectionForDeclarations(declarations),
+          token,
+          utility: tokenParts.utility,
         }
-        const declarations = parseDeclarations(body)
-        return declarations.length === 0
-          ? []
-          : [
-              {
-                body,
-                ...(context?.currentSelector === undefined
-                  ? {}
-                  : { currentSelector: context.currentSelector }),
-                declarations,
-                order,
-                parents: parent === undefined ? [] : parent.split(" $$ "),
-                selector,
-                sort: typeof meta?.sort === "number" ? meta.sort : 0,
-              },
-            ]
-      })
-      const declarations = rules.flatMap((rule) => rule.declarations)
-      const tokenParts = parseTokenParts(token)
-
-      return {
-        conditions: tokenParts.conditions,
-        known: rules.length > 0,
-        rules,
-        section: sectionForDeclarations(declarations),
-        token,
-        utility: tokenParts.utility,
+        cache.set(token, inspected)
+        if (cache.size > tokenCacheLimit) {
+          cache.delete(cache.keys().next().value!)
+        }
+        return inspected
+      } finally {
+        inFlight.delete(token)
       }
     })()
-    cache.set(token, inspection)
+    inFlight.set(token, inspection)
     return inspection
   }
 
@@ -1344,18 +1732,28 @@ export const createUtilityInspector = (generator: UtilityGenerator) => {
   ): Promise<UtilitySection[]> => {
     const tokens = className.trim() === "" ? [] : className.trim().split(/\s+/)
     const utilities = await Promise.all(tokens.map(inspectToken))
+    const viewportOptions = resolveGeneratorViewportOptions(generator)
+    const hasRawConflict = createRawConflictGuard(
+      utilities,
+      options,
+      viewportBreakpoints,
+      viewportParents,
+      viewportOptions,
+    )
     const spacingModel = createSpacingSummaries(
       utilities,
       options,
       viewportBreakpoints,
       viewportParents,
+      hasRawConflict,
     )
     const semanticModel = createSemanticCandidates(
       utilities,
       options,
       viewportBreakpoints,
       viewportParents,
-      resolveGeneratorViewportOptions(generator),
+      viewportOptions,
+      hasRawConflict,
     )
     const consumed = new Set([...spacingModel.consumed, ...semanticModel.consumed])
     return inspectorSectionNames.flatMap((name) => {

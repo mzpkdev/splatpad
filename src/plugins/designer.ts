@@ -63,6 +63,7 @@ html, body, #root, .designer {
   background: transparent;
 }
 .page-frame {
+  position: relative;
   overflow: hidden;
   border: 1px solid #c7c7c7;
   border-radius: 3px;
@@ -87,7 +88,19 @@ html, body, #root, .designer {
   background: #fff;
   pointer-events: none;
 }
-.page-frame--interactive .page-frame__preview { pointer-events: auto; }
+.page-frame__interaction-surface {
+  position: absolute;
+  z-index: 1;
+  top: 44px;
+  left: 0;
+  width: 1440px;
+  background: transparent;
+  cursor: crosshair;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+}
+.page-frame--interactive .page-frame__interaction-surface { pointer-events: auto; }
 .designer-toolbar {
   position: absolute;
   z-index: 10;
@@ -151,24 +164,12 @@ html, body, #root, .designer {
   position: sticky;
   z-index: 1;
   top: 0;
-  display: flex;
-  align-items: center;
   padding: 16px;
   border-bottom: 1px solid #e5e7eb;
   background: rgb(255 255 255 / 96%);
 }
-.designer-inspector__header h2 {
-  margin: 0;
-  color: #111827;
-  font-size: 14px;
-  font-weight: 650;
-}
-.designer-inspector__message {
-  margin: 0;
-  padding: 20px 16px;
-  color: #6b7280;
-  font-size: 12px;
-}
+.designer-inspector__header h2 { margin: 0; color: #111827; font-size: 14px; }
+.designer-inspector__message { margin: 0; padding: 20px 16px; color: #6b7280; font-size: 12px; }
 .designer-inspector__message--error { color: #b42318; }
 .designer-inspector__section { border-bottom: 1px solid #e5e7eb; }
 .designer-inspector__section > h3 {
@@ -176,33 +177,17 @@ html, body, #root, .designer {
   padding: 13px 16px 8px;
   color: #374151;
   font-size: 11px;
-  font-weight: 700;
   letter-spacing: .04em;
   text-transform: uppercase;
 }
-.designer-inspector__spacing {
-  display: grid;
-  gap: 8px;
-  padding: 0 10px 10px;
-}
+.designer-inspector__spacing { display: grid; gap: 8px; padding: 0 10px 10px; }
 .designer-inspector__spacing-card {
   padding: 10px;
   border: 1px solid #e5e7eb;
   border-radius: 7px;
   background: #fff;
 }
-.designer-inspector__spacing-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.designer-inspector__spacing-heading h4 {
-  margin: 0;
-  color: #111827;
-  font-size: 12px;
-  font-weight: 650;
-}
+.designer-inspector__spacing-heading h4 { margin: 0; color: #111827; font-size: 12px; }
 .designer-viewport-control {
   position: absolute;
   z-index: 10;
@@ -231,7 +216,6 @@ html, body, #root, .designer {
   background: #f9fafb;
   color: #374151;
   font-size: 10px;
-  text-overflow: ellipsis;
 }
 .designer-inspector__spacing-values {
   display: grid;
@@ -239,50 +223,25 @@ html, body, #root, .designer {
   gap: 6px;
   margin: 10px 0 0;
 }
-.designer-inspector__spacing-values > div {
-  min-width: 0;
-  padding: 6px 4px;
-  border-radius: 5px;
-  background: #f9fafb;
-  text-align: center;
-}
-.designer-inspector__spacing-values dt {
-  overflow: hidden;
-  color: #6b7280;
-  font-size: 9px;
-  text-overflow: ellipsis;
-}
+.designer-inspector__spacing-values > div { min-width: 0; padding: 6px 4px; background: #f9fafb; text-align: center; }
+.designer-inspector__spacing-values dt { color: #6b7280; font-size: 9px; }
 .designer-inspector__spacing-values dd {
   margin: 3px 0 0;
   overflow: hidden;
-  color: #111827;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
-  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.designer-inspector__semantic-values {
-  display: grid;
-  gap: 1px;
-  margin: 8px 0 0;
-}
+.designer-inspector__semantic-values { display: grid; gap: 1px; margin: 8px 0 0; }
 .designer-inspector__semantic-values > div {
   display: grid;
-  min-width: 0;
   grid-template-columns: minmax(78px, .8fr) minmax(0, 1.2fr);
   gap: 8px;
   padding: 5px 6px;
-  border-radius: 4px;
 }
 .designer-inspector__semantic-values > div:nth-child(odd) { background: #f9fafb; }
-.designer-inspector__semantic-values dt {
-  overflow: hidden;
-  color: #6b7280;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.designer-inspector__semantic-values dt { color: #6b7280; font-size: 10px; }
 .designer-inspector__semantic-values dd {
   display: flex;
   align-items: center;
@@ -290,11 +249,8 @@ html, body, #root, .designer {
   gap: 5px;
   margin: 0;
   overflow: hidden;
-  color: #111827;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 10px;
-  font-weight: 650;
-  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -313,106 +269,27 @@ html, body, #root, .designer {
   background-position: 0 0, 0 3px, 3px -3px, -3px 0;
   background-size: 6px 6px;
 }
-.designer-inspector__semantic-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.designer-inspector__semantic-value { overflow: hidden; text-overflow: ellipsis; }
 .designer-inspector__utilities { padding: 0 10px 10px; }
-.designer-inspector__utility {
-  padding: 9px 7px;
-  border-radius: 6px;
-}
-.designer-inspector__utility:hover { background: #f9fafb; }
+.designer-inspector__utility { padding: 9px 7px; border-radius: 6px; }
 .designer-inspector__utility--unknown { border: 1px dashed #d1d5db; }
-.designer-inspector__utility-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
+.designer-inspector__utility-heading { display: flex; justify-content: space-between; gap: 8px; }
 .designer-inspector code {
   color: #1f2937;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
-.designer-inspector__token {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.designer-inspector__unknown {
-  color: #9a3412;
-  font-size: 10px;
-  font-weight: 650;
-}
-.designer-inspector__conditions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding-top: 6px;
-}
-.designer-inspector__conditions code {
-  max-width: 100%;
-  padding: 2px 5px;
-  overflow: hidden;
-  border-radius: 4px;
-  background: #ede9fe;
-  color: #6d28d9;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.designer-inspector__rule {
-  margin-top: 7px;
-  padding-top: 7px;
-  border-top: 1px solid #f0f1f3;
-}
-.designer-inspector__target {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-.designer-inspector__target span {
-  color: #6b7280;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-.designer-inspector__target code {
-  overflow: hidden;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.designer-inspector__target code + code { padding-left: 10px; }
+.designer-inspector__token { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.designer-inspector__unknown { color: #9a3412; font-size: 10px; font-weight: 650; }
+.designer-inspector__conditions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 6px; }
+.designer-inspector__conditions code { padding: 2px 5px; border-radius: 4px; background: #ede9fe; color: #6d28d9; font-size: 10px; }
+.designer-inspector__rule { margin-top: 7px; padding-top: 7px; border-top: 1px solid #f0f1f3; }
+.designer-inspector__target { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.designer-inspector__target span { color: #6b7280; font-size: 9px; text-transform: uppercase; }
+.designer-inspector__target code { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .designer-inspector__declarations { margin: 7px 0 0; }
-.designer-inspector__declarations > div {
-  display: grid;
-  grid-template-columns: minmax(82px, .8fr) minmax(0, 1.2fr);
-  gap: 8px;
-  padding: 3px 0;
-  font-size: 11px;
-  line-height: 1.35;
-}
-.designer-inspector__declarations dt {
-  overflow: hidden;
-  color: #6b7280;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.designer-inspector__declarations dd {
-  margin: 0;
-  overflow: hidden;
-  color: #111827;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.designer-inspector__declarations > div { display: grid; grid-template-columns: minmax(82px, .8fr) minmax(0, 1.2fr); gap: 8px; padding: 3px 0; font-size: 11px; }
+.designer-inspector__declarations dt { overflow: hidden; color: #6b7280; text-overflow: ellipsis; white-space: nowrap; }
+.designer-inspector__declarations dd { margin: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .react-flow__controls {
   overflow: hidden;
   border: 1px solid #c7c7c7;

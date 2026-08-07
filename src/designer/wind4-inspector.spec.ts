@@ -196,6 +196,321 @@ describe("Wind4 utility inspector", () => {
     })
   })
 
+  it("keeps every competing color utility raw when a conditional rule may win", async () => {
+    const sections = await inspectWind4ClassName("text-[#123456] text-red-500")
+
+    expect(sections.flatMap(({ semantic }) => semantic)).toEqual([])
+    expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "text-[#123456]",
+      "text-red-500",
+    ])
+  })
+
+  it("blocks only the underlying property competed for by an unrepresentable rule", async () => {
+    const generate = vi.fn(async (tokens: string[]) => {
+      const [token] = tokens
+      const data =
+        token === "w-4"
+          ? [[0, ".w-4", "width:1rem;", undefined]]
+          : token === "raw-width"
+            ? [[1, ".raw-width", "width:2rem;unknown:value;", undefined]]
+            : [[2, ".raw-height", "height:3rem;unknown:value;", undefined]]
+      return { matched: new Map([[token, { data }]]) }
+    })
+    const inspect = createUtilityInspector({ generate: generate as never })
+
+    const widthConflict = await inspect("w-4 raw-width")
+    expect(widthConflict.flatMap(({ semantic }) => semantic)).toEqual([])
+    expect(widthConflict.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "w-4",
+      "raw-width",
+    ])
+
+    const otherProperty = await inspect("w-4 raw-height")
+    expect(otherProperty.flatMap(({ semantic }) => semantic)).toMatchObject([
+      { card: "Dimensions", field: "Width", token: "w-4" },
+    ])
+    expect(otherProperty.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "raw-height",
+    ])
+  })
+
+  it("keeps typography raw when a winning font shorthand changes text size", async () => {
+    const sections = await inspectWind4ClassName("text-sm [font:italic_24px_serif]")
+
+    expect(sections.flatMap(({ semantic }) => semantic)).toEqual([])
+    expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "text-sm",
+      "[font:italic_24px_serif]",
+    ])
+  })
+
+  it.each(["[&]", "[&&]", "[&&&]"])(
+    "keeps spacing raw when the unconditional self variant %s wins",
+    async (variant) => {
+      const sections = await inspectWind4ClassName(`p-4 ${variant}:!p-8`)
+
+      expect(sections.flatMap(({ spacing }) => spacing)).toEqual([])
+      expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+        "p-4",
+        `${variant}:!p-8`,
+      ])
+    },
+  )
+
+  it.each([
+    ["spacing", "p-4", "[&&]:p-8"],
+    ["spacing with later Uno order", "pt-4", "[&&]:p-8"],
+    ["width", "w-4", "[&&]:w-8"],
+    ["opacity", "opacity-50", "[&&]:opacity-75"],
+    ["radius", "rounded-lg", "[&&]:rounded-xl"],
+    ["triple-self specificity", "p-4", "[&&&]:p-8"],
+  ])(
+    "keeps %s raw when a non-important repeated-self variant wins",
+    async (_name, base, variant) => {
+      const sections = await inspectWind4ClassName(`${base} ${variant}`)
+
+      expect(sections.flatMap(({ spacing }) => spacing)).toEqual([])
+      expect(sections.flatMap(({ semantic }) => semantic)).toEqual([])
+      expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+        base,
+        variant,
+      ])
+    },
+  )
+
+  it.each([
+    ["padding", "[&&]:p-4 md:p-8"],
+    ["width", "[&&]:w-4 md:w-8"],
+    ["opacity", "[&&]:opacity-50 md:opacity-75"],
+    ["corners", "[&&]:rounded-lg md:rounded-xl"],
+    ["triple-self specificity", "[&&&]:p-4 md:p-8"],
+    ["later Uno order", "[&&]:p-4 md:pt-8"],
+  ])(
+    "keeps %s raw when selector specificity beats an active breakpoint",
+    async (_name, className) => {
+      const sections = await inspectWind4ClassName(className, { viewport: "md" })
+
+      expect(sections.flatMap(({ spacing }) => spacing)).toEqual([])
+      expect(sections.flatMap(({ semantic }) => semantic)).toEqual([])
+      expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual(
+        className.split(" "),
+      )
+    },
+  )
+
+  it("lets importance beat a more specific selector across active breakpoints", async () => {
+    const sections = await inspectWind4ClassName("[&&]:p-4 md:!p-8", { viewport: "md" })
+    const resolvedSpacing = resolveViewportSpacing(
+      sections.flatMap(({ spacing }) => spacing),
+      "Padding",
+      "md",
+      wind4Viewports,
+    )
+
+    expect(resolvedSpacing?.sides.Top).toMatchObject({ value: "8" })
+    expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "[&&]:p-4",
+    ])
+  })
+
+  it("uses mobile-first source order for equal-specificity active breakpoints", async () => {
+    const results = await Promise.all(
+      ["[&]:p-4 md:p-8", "md:p-8 [&]:p-4"].map((className) =>
+        inspectWind4ClassName(className, { viewport: "md" }),
+      ),
+    )
+    for (const sections of results) {
+      const resolvedSpacing = resolveViewportSpacing(
+        sections.flatMap(({ spacing }) => spacing),
+        "Padding",
+        "md",
+        wind4Viewports,
+      )
+
+      expect(resolvedSpacing?.sides.Top).toMatchObject({ value: "8" })
+      expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+        "[&]:p-4",
+      ])
+    }
+  })
+
+  it.each(["pt-4 md:p-8", "md:p-8 pt-4"])(
+    "uses emitted responsive source order across different utility rule orders: %s",
+    async (className) => {
+      const sections = await inspectWind4ClassName(className, { viewport: "md" })
+      const summaries = sections.flatMap(({ spacing }) => spacing)
+
+      expect(
+        resolveViewportSpacing(summaries, "Padding", "Default", wind4Viewports)?.sides.Top,
+      ).toMatchObject({ value: "4" })
+      expect(
+        resolveViewportSpacing(summaries, "Padding", "md", wind4Viewports)?.sides.Top,
+      ).toMatchObject({ value: "8" })
+    },
+  )
+
+  it.each(["p-4 md:pt-8", "md:pt-8 p-4"])(
+    "uses emitted responsive source order when the base shorthand has a later rule order: %s",
+    async (className) => {
+      const sections = await inspectWind4ClassName(className, { viewport: "md" })
+      const resolved = resolveViewportSpacing(
+        sections.flatMap(({ spacing }) => spacing),
+        "Padding",
+        "md",
+        wind4Viewports,
+      )
+
+      expect(resolved?.sides).toMatchObject({
+        Bottom: { value: "4" },
+        Left: { value: "4" },
+        Right: { value: "4" },
+        Top: { value: "8" },
+      })
+    },
+  )
+
+  it.each(["lg:p-10 p-2 sm:p-6 md:p-8", "md:p-8 sm:p-6 p-2 lg:p-10"])(
+    "orders multiple responsive parents by their emitted position: %s",
+    async (className) => {
+      const sections = await inspectWind4ClassName(className, { viewport: "lg" })
+      const summaries = sections.flatMap(({ spacing }) => spacing)
+
+      expect(
+        resolveViewportSpacing(summaries, "Padding", "sm", wind4Viewports)?.sides.Top,
+      ).toMatchObject({ value: "6" })
+      expect(
+        resolveViewportSpacing(summaries, "Padding", "md", wind4Viewports)?.sides.Top,
+      ).toMatchObject({ value: "8" })
+      expect(
+        resolveViewportSpacing(summaries, "Padding", "lg", wind4Viewports)?.sides.Top,
+      ).toMatchObject({ value: "10" })
+    },
+  )
+
+  it("uses breakpoints only for applicability before generator order decides the cascade", async () => {
+    const generate = vi.fn(async (tokens: string[]) => {
+      const [token] = tokens
+      const data =
+        token === "p-4"
+          ? [[100, ".p-4", "padding:1rem;", undefined]]
+          : [[1, ".md\\:p-8", "padding:2rem;", "@media (min-width: 48rem)"]]
+      return { matched: new Map([[token, { data }]]) }
+    })
+    const inspect = createUtilityInspector({
+      config: { theme: { breakpoint: { md: "48rem" } } },
+      generate: generate as never,
+    })
+    const sections = await inspect("p-4 md:p-8", { viewport: "md" })
+    const summaries = sections.flatMap(({ spacing }) => spacing)
+
+    expect(
+      resolveViewportSpacing(summaries, "Padding", "Default", wind4Viewports)?.sides.Top,
+    ).toMatchObject({ value: "4" })
+    expect(
+      resolveViewportSpacing(summaries, "Padding", "md", wind4Viewports)?.sides.Top,
+    ).toMatchObject({
+      candidates: expect.arrayContaining([expect.objectContaining({ token: "md:p-8" })]),
+      value: "4",
+    })
+  })
+
+  it("does not treat a single-self selector as more specific than a normal utility", async () => {
+    const sections = await inspectWind4ClassName("p-4 [&]:p-8")
+
+    expect(sections.flatMap(({ spacing }) => spacing)[0]?.sides.Top).toMatchObject({ value: "4" })
+    expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "[&]:p-8",
+    ])
+  })
+
+  it("keeps an important normal utility semantic against a repeated-self selector", async () => {
+    const sections = await inspectWind4ClassName("!p-4 [&&]:p-8")
+
+    expect(sections.flatMap(({ spacing }) => spacing)[0]?.sides.Top).toMatchObject({ value: "4" })
+    expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "[&&]:p-8",
+    ])
+  })
+
+  it.each([
+    ["typography", "text-sm", "font:italic 24px serif", ["text-sm"]],
+    ["spacing", "p-4", "padding-inline:2rem", ["p-4"]],
+    ["stroke", "border-2", "border:solid 8px red", ["border-2"]],
+    ["corners", "rounded-ss-lg", "border-start-start-radius:2rem", ["rounded-ss-lg"]],
+    ["fill", "bg-[#123456]", "background:blue", ["bg-[#123456]"]],
+    ["dimensions", "w-4", "inline-size:2rem", ["w-4"]],
+    ["layout", "flex flex-row", "flex-flow:column wrap", ["flex-row"]],
+    ["gap", "flex gap-4", "gap:1rem 2rem", ["gap-4"]],
+    ["global", "opacity-50", "all:initial", ["opacity-50"]],
+  ])(
+    "normalizes %s shorthand and longhand footprints",
+    async (_name, semantic, rawBody, affected) => {
+      const rawToken = `raw-${_name}`
+      const [rawProperty, ...rawValueParts] = rawBody.split(":")
+      const generator = await import("@unocss/core").then(async ({ createGenerator }) =>
+        createGenerator({
+          rules: [
+            [
+              new RegExp(`^${rawToken}$`),
+              () => ({
+                [rawProperty!]: `${rawValueParts.join(":")} !important`,
+                unknown: "value",
+              }),
+            ],
+          ],
+          presets: [(await import("@unocss/preset-wind4")).presetWind4()],
+        }),
+      )
+      const inspect = createUtilityInspector(await generator)
+      const sections = await inspect(`${semantic} ${rawToken}`)
+
+      expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual(
+        expect.arrayContaining([...affected, rawToken]),
+      )
+    },
+  )
+
+  it("does not let state, descendant, sibling, or pseudo-element rules hide normal fields", async () => {
+    const sections = await inspectWind4ClassName(
+      "p-4 hover:!p-8 [&:hover]:!p-8 [&>*]:!p-8 [&+*]:!p-8 before:!p-8 [&::before]:!p-8 peer-checked:!p-8",
+    )
+
+    expect(sections.flatMap(({ spacing }) => spacing)[0]?.sides.Top).toMatchObject({ value: "4" })
+    expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual(
+      expect.arrayContaining([
+        "hover:!p-8",
+        "[&:hover]:!p-8",
+        "[&>*]:!p-8",
+        "[&+*]:!p-8",
+        "before:!p-8",
+        "[&::before]:!p-8",
+        "peer-checked:!p-8",
+      ]),
+    )
+  })
+
+  it("respects importance and active breakpoint applicability for raw competitors", async () => {
+    const important = await inspectWind4ClassName("!text-sm [font:italic_24px_serif]")
+    expect(important.flatMap(({ semantic }) => semantic).map(({ token }) => token)).toEqual([
+      "!text-sm",
+      "!text-sm",
+    ])
+    expect(important.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "[font:italic_24px_serif]",
+    ])
+
+    const className = "p-4 md:[padding:2rem]"
+    const atDefault = await inspectWind4ClassName(className, { viewport: "Default" })
+    const atMedium = await inspectWind4ClassName(className, { viewport: "md" })
+    expect(atDefault.flatMap(({ spacing }) => spacing)[0]?.sides.Top).toMatchObject({ value: "4" })
+    expect(atMedium.flatMap(({ spacing }) => spacing)).toEqual([])
+    expect(atMedium.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "p-4",
+      "md:[padding:2rem]",
+    ])
+  })
+
   it("parses each unique token once and reuses the cached promise", async () => {
     const generate = vi.fn(async (tokens: string[]) => ({
       matched: new Map([[tokens[0], { data: [[0, ".p-4", "padding:1rem;", undefined]] }]]),
@@ -206,6 +521,50 @@ describe("Wind4 utility inspector", () => {
     await inspect("p-4")
 
     expect(generate).toHaveBeenCalledOnce()
+  })
+
+  it("bounds the token cache and refreshes recency before eviction", async () => {
+    const generate = vi.fn(async (tokens: string[]) => ({
+      matched: new Map([[tokens[0], { data: [[0, `.${tokens[0]}`, "width:1rem;", undefined]] }]]),
+    }))
+    const inspect = createUtilityInspector({ generate: generate as never })
+    const initialTokens = Array.from({ length: 256 }, (_, index) => `token-${index}`)
+
+    await inspect(initialTokens.join(" "))
+    await inspect("token-0")
+    await inspect("token-extra")
+    await inspect("token-0 token-1")
+
+    expect(generate).toHaveBeenCalledTimes(258)
+    expect(generate.mock.calls.filter(([tokens]) => tokens[0] === "token-0")).toHaveLength(1)
+    expect(generate.mock.calls.filter(([tokens]) => tokens[0] === "token-1")).toHaveLength(2)
+  })
+
+  it("reuses pending token generation beyond the completed cache limit", async () => {
+    const resolvers = new Map<string, () => void>()
+    const generate = vi.fn(
+      (tokens: string[]) =>
+        new Promise<{ matched: Map<string, { data: [number, string, string, undefined][] }> }>(
+          (resolve) => {
+            const token = tokens[0]!
+            resolvers.set(token, () =>
+              resolve({
+                matched: new Map([[token, { data: [[0, `.${token}`, "width:1rem;", undefined]] }]]),
+              }),
+            )
+          },
+        ),
+    )
+    const inspect = createUtilityInspector({ generate: generate as never })
+    const pending = Array.from({ length: 257 }, (_, index) => inspect(`token-${index}`))
+    const duplicate = inspect("token-0")
+
+    expect(generate).toHaveBeenCalledTimes(257)
+    for (const resolve of resolvers.values()) {
+      resolve()
+    }
+    await Promise.all([...pending, duplicate])
+    expect(generate.mock.calls.filter(([tokens]) => tokens[0] === "token-0")).toHaveLength(1)
   })
 
   it("summarizes p-3 as semantic padding on every side", async () => {
@@ -808,6 +1167,19 @@ describe("Wind4 utility inspector", () => {
       "ps-4",
       "border-s-2",
       "rounded-ss-lg",
+    ])
+  })
+
+  it("conservatively blocks corners changed by a logical declaration in an unknown writing mode", async () => {
+    const sections = await inspectWind4ClassName(
+      "rounded-lg [&]:![border-start-start-radius:2rem]",
+      { direction: "ltr", writingMode: "sideways-rl" },
+    )
+
+    expect(sections.flatMap(({ semantic }) => semantic)).toEqual([])
+    expect(sections.flatMap(({ utilities }) => utilities).map(({ token }) => token)).toEqual([
+      "rounded-lg",
+      "[&]:![border-start-start-radius:2rem]",
     ])
   })
 
