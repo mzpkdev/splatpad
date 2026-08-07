@@ -86,6 +86,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const interactionSurfaceRef = useRef<HTMLDivElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
+  const measurementGeneration = useRef(0)
   const hoveredElement = useRef<Element | undefined>(undefined)
   const hitElement = useRef<Element | undefined>(undefined)
   const lastInspectionClick = useRef<number | undefined>(undefined)
@@ -145,22 +146,34 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
   const measureFrame = useCallback(
     (frame: HTMLIFrameElement): void => {
+      const generation = ++measurementGeneration.current
       if (measurementFrame.current !== undefined) {
         cancelAnimationFrame(measurementFrame.current)
+        measurementFrame.current = undefined
       }
       const document = frame.contentDocument
       if (document === null) {
         return
       }
 
+      const isCurrentDocument = (): boolean =>
+        measurementGeneration.current === generation && frame.contentDocument === document
+
       const measure = (): void => {
+        if (!isCurrentDocument()) {
+          return
+        }
+        measurementFrame.current = undefined
         const height = documentHeight(document)
-        if (height > 0) {
+        if (height > 0 && isCurrentDocument()) {
           data.onHeight(data.route, height)
         }
       }
 
       const scheduleMeasure = (): void => {
+        if (!isCurrentDocument()) {
+          return
+        }
         if (measurementFrame.current !== undefined) {
           cancelAnimationFrame(measurementFrame.current)
         }
@@ -587,8 +600,10 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
   useEffect(
     () => () => {
+      measurementGeneration.current += 1
       if (measurementFrame.current !== undefined) {
         cancelAnimationFrame(measurementFrame.current)
+        measurementFrame.current = undefined
       }
     },
     [],
@@ -981,6 +996,11 @@ const Designer = () => {
     setHeights((current) => (current[route] === height ? current : { ...current, [route]: height }))
   }, [])
 
+  const selectViewport = useCallback((nextViewport: ViewportCondition): void => {
+    setHeights({})
+    setViewport(nextViewport)
+  }, [])
+
   const clearAllFrameSelections = useCallback((): void => {
     for (const clear of selectionClears.current.values()) {
       clear()
@@ -1232,7 +1252,7 @@ const Designer = () => {
         <span>Viewport</span>
         <select
           aria-label="Viewport breakpoint"
-          onChange={(event) => setViewport(event.target.value)}
+          onChange={(event) => selectViewport(event.target.value)}
           value={viewport}
         >
           {viewportOptions.map((option) => (
