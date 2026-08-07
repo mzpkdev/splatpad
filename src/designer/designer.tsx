@@ -4,6 +4,20 @@ import { Hand, MousePointer2 } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { frameHeaderHeight, frameWidth, initialFrameHeight, layoutDesignRoutes } from "./layout"
+import {
+  getWind4ViewportOptions,
+  inspectWind4ClassName,
+  resolveViewportSemanticCards,
+  resolveViewportSpacing,
+} from "./wind4-inspector"
+import { spacingSides } from "./wind4-inspector"
+import type {
+  SpacingSummary,
+  SemanticCardSummary,
+  UtilitySection,
+  ViewportCondition,
+  ViewportOption,
+} from "./wind4-inspector"
 
 interface RouteRecord {
   route: string
@@ -17,7 +31,10 @@ type DesignerTool = "inspect" | "pan"
 
 interface InspectedElement {
   className: string
+  direction: "ltr" | "rtl"
+  element: Element
   route: string
+  writingMode: string
 }
 
 interface PageNodeData extends Record<string, unknown> {
@@ -35,6 +52,7 @@ interface PageNodeData extends Record<string, unknown> {
   onPanStart: (position: { x: number; y: number }) => void
   onSpacePanning: (active: boolean) => void
   route: string
+  viewportWidth: number
 }
 
 type PageNode = Node<PageNodeData, "page">
@@ -104,6 +122,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     onPanStart,
     onSpacePanning,
     route,
+    viewportWidth,
   } = data
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
@@ -114,8 +133,32 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const middlePan = useRef<{ capture: Element; pointerId: number } | undefined>(undefined)
   const updateOverlays = useRef<() => void>(() => undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
+  const disconnectSelectionRefresh = useRef<() => void>(() => undefined)
+
+  const inspectElement = useCallback(
+    (element: Element): void => {
+      const frame = frameRef.current
+      if (frame === null) {
+        return
+      }
+      const document = frame.contentDocument
+      if (document === null || !element.isConnected || element.ownerDocument !== document) {
+        return
+      }
+      const computedStyle = document.defaultView?.getComputedStyle(element)
+      onInspect({
+        className: element.getAttribute("class") ?? "",
+        direction: computedStyle?.direction === "rtl" ? "rtl" : "ltr",
+        element,
+        route,
+        writingMode: computedStyle?.writingMode ?? "horizontal-tb",
+      })
+    },
+    [onInspect, route],
+  )
 
   const clearMarkers = useCallback((): void => {
+    disconnectSelectionRefresh.current()
     hoveredElement.current?.removeAttribute(hoverAttribute)
     selectedElement.current?.removeAttribute(selectedAttribute)
     hoveredElement.current = undefined
@@ -155,6 +198,13 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     [data],
   )
 
+  useEffect(() => {
+    const frame = frameRef.current
+    if (frame !== null) {
+      measureFrame(frame)
+    }
+  }, [measureFrame, viewportWidth])
+
   const connectInspector = useCallback(
     (frame: HTMLIFrameElement): void => {
       disconnectInspector.current()
@@ -163,6 +213,44 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       const document = frame.contentDocument
       if (document === null || !inspecting) {
         return
+      }
+
+      const connectSelectionRefresh = (element: Element): void => {
+        disconnectSelectionRefresh.current()
+        const frameWindow = document.defaultView
+        if (frameWindow === null) {
+          return
+        }
+
+        let refreshFrame: number | undefined
+        const observer = new frameWindow.MutationObserver(() => {
+          if (refreshFrame !== undefined) {
+            return
+          }
+          refreshFrame = frameWindow.requestAnimationFrame(() => {
+            refreshFrame = undefined
+            if (element === selectedElement.current && element.isConnected) {
+              inspectElement(element)
+            }
+          })
+        })
+        for (
+          let current: Element | null = element;
+          current !== null;
+          current = current.parentElement
+        ) {
+          observer.observe(current, {
+            attributeFilter: ["class", "dir", "style"],
+            attributes: true,
+          })
+        }
+        disconnectSelectionRefresh.current = () => {
+          observer.disconnect()
+          if (refreshFrame !== undefined) {
+            frameWindow.cancelAnimationFrame(refreshFrame)
+          }
+          disconnectSelectionRefresh.current = () => undefined
+        }
       }
 
       const style = installInspectorStyles(document)
@@ -207,11 +295,13 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         const frameLeft = frameBounds.left + frame.clientLeft * frameScaleX
         const frameTop = frameBounds.top + frame.clientTop * frameScaleY
         const bounds = element.getBoundingClientRect()
-        const viewportWidth = document.documentElement.clientWidth
+        const documentViewportWidth = document.documentElement.clientWidth
         const viewportHeight = document.documentElement.clientHeight
-        const left = frameLeft + Math.max(0, Math.min(viewportWidth, bounds.left)) * frameScaleX
+        const left =
+          frameLeft + Math.max(0, Math.min(documentViewportWidth, bounds.left)) * frameScaleX
         const top = frameTop + Math.max(0, Math.min(viewportHeight, bounds.top)) * frameScaleY
-        const right = frameLeft + Math.max(0, Math.min(viewportWidth, bounds.right)) * frameScaleX
+        const right =
+          frameLeft + Math.max(0, Math.min(documentViewportWidth, bounds.right)) * frameScaleX
         const bottom = frameTop + Math.max(0, Math.min(viewportHeight, bounds.bottom)) * frameScaleY
         if (right <= left || bottom <= top) {
           overlay.style.setProperty("display", "none", "important")
@@ -235,6 +325,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           hoveredElement.current = undefined
         }
         if (selectedElement.current !== undefined && !selectedElement.current.isConnected) {
+          disconnectSelectionRefresh.current()
           selectedElement.current = undefined
           hitElement.current = undefined
           lastInspectionClick.current = undefined
@@ -334,14 +425,14 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           continuesClickStreak && currentSelection !== undefined
             ? (currentSelection.parentElement ?? currentSelection)
             : element
-
         selectedElement.current?.removeAttribute(selectedAttribute)
         hitElement.current = element
         lastInspectionClick.current = event.timeStamp
         selectedElement.current = nextSelection
         nextSelection.setAttribute(selectedAttribute, "")
+        connectSelectionRefresh(nextSelection)
         updateOverlayPositions()
-        onInspect({ className: nextSelection.getAttribute("class") ?? "", route })
+        inspectElement(nextSelection)
       }
 
       const blockAction = (event: Event): void => {
@@ -460,6 +551,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         document.removeEventListener("wheel", onWheel, true)
         document.removeEventListener("keydown", onKeyDown, true)
         document.removeEventListener("keyup", onKeyUp, true)
+        disconnectSelectionRefresh.current()
         if (overlayFrame !== undefined) {
           overlayWindow?.cancelAnimationFrame(overlayFrame)
         }
@@ -478,6 +570,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     [
       clearMarkers,
       inspecting,
+      inspectElement,
       onActivateTool,
       onClearInspection,
       onInspect,
@@ -502,6 +595,23 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     clearMarkers()
   }, [clearMarkers, data.clearInspection])
 
+  useEffect(() => {
+    const element = selectedElement.current
+    if (element === undefined) {
+      return
+    }
+    const refreshFrame = requestAnimationFrame(() => {
+      if (element !== selectedElement.current || !element.isConnected) {
+        if (element === selectedElement.current) {
+          onInvalidate(route)
+        }
+        return
+      }
+      inspectElement(element)
+    })
+    return () => cancelAnimationFrame(refreshFrame)
+  }, [inspectElement, onInvalidate, route, viewportWidth])
+
   useEffect(
     () => () => {
       if (measurementFrame.current !== undefined) {
@@ -515,6 +625,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     <article
       className={`page-frame${data.interactive ? " page-frame--interactive" : ""}`}
       data-route={data.route}
+      style={{ width: viewportWidth }}
     >
       <header className="page-frame__header">{data.route}</header>
       <iframe
@@ -527,7 +638,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         }}
         ref={frameRef}
         src={data.route}
-        style={{ height: data.contentHeight }}
+        style={{ height: data.contentHeight, width: viewportWidth }}
         tabIndex={-1}
         title={data.route}
       />
@@ -538,6 +649,326 @@ PageFrame.displayName = "PageFrame"
 
 const nodeTypes: NodeTypes = { page: PageFrame }
 
+const resolveColorVariables = (
+  value: string,
+  style: CSSStyleDeclaration,
+  seen = new Set<string>(),
+): string | undefined => {
+  let resolvedValue = ""
+  let cursor = 0
+  let start = value.indexOf("var(", cursor)
+  while (start >= 0) {
+    resolvedValue += value.slice(cursor, start)
+    let depth = 1
+    let end = start + 4
+    let comma = -1
+    for (; end < value.length && depth > 0; end += 1) {
+      if (value[end] === "(") {
+        depth += 1
+      } else if (value[end] === ")") {
+        depth -= 1
+      } else if (value[end] === "," && depth === 1 && comma < 0) {
+        comma = end
+      }
+    }
+    if (depth !== 0) {
+      return undefined
+    }
+    const close = end - 1
+    const nameEnd = comma < 0 ? close : comma
+    const name = value.slice(start + 4, nameEnd).trim()
+    const declared = style.getPropertyValue(name).trim()
+    const fallback = comma < 0 ? "" : value.slice(comma + 1, close).trim()
+    const resolved = declared || fallback
+    if (!name.startsWith("--") || resolved === "" || seen.has(name)) {
+      return undefined
+    }
+    const nested = resolveColorVariables(resolved, style, new Set([...seen, name]))
+    if (nested === undefined) {
+      return undefined
+    }
+    resolvedValue += nested
+    cursor = end
+    start = value.indexOf("var(", cursor)
+  }
+  return resolvedValue + value.slice(cursor)
+}
+
+const SpacingCard = ({
+  allTokens,
+  name,
+  summary,
+}: {
+  allTokens: string[]
+  name: "Margin" | "Padding"
+  summary: SpacingSummary
+}) => {
+  return (
+    <article
+      className="designer-inspector__spacing-card"
+      data-active-source-tokens={summary.tokens.join(" ")}
+      data-source-tokens={allTokens.join(" ")}
+    >
+      <div className="designer-inspector__spacing-heading">
+        <h4>{name}</h4>
+      </div>
+      <dl aria-label={`${name} values`} className="designer-inspector__spacing-values">
+        {spacingSides.map((side) => (
+          <div key={side}>
+            <dt>{side}</dt>
+            <dd
+              data-source-tokens={summary.sides[side]?.tokens.join(" ")}
+              title={summary.sides[side]?.tokens.join(", ")}
+            >
+              {summary.sides[side]?.value ?? "—"}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </article>
+  )
+}
+
+const SemanticCard = ({
+  allTokens,
+  element,
+  summary,
+}: {
+  allTokens: string[]
+  element: Element
+  summary: SemanticCardSummary
+}) => {
+  const computedStyle = element.ownerDocument.defaultView?.getComputedStyle(element)
+  const css = element.ownerDocument.defaultView?.CSS
+  const colorPaint = (semantic: SemanticCardSummary["values"][string]): string | undefined => {
+    if (semantic.colorProperty === undefined || computedStyle === undefined || css === undefined) {
+      return undefined
+    }
+    const generatedValue = semantic.generatedValue ?? semantic.value
+    const variablesResolved = resolveColorVariables(generatedValue, computedStyle)
+    if (
+      variablesResolved === undefined ||
+      !css.supports(semantic.colorProperty, variablesResolved)
+    ) {
+      return undefined
+    }
+    const paint = computedStyle.getPropertyValue(semantic.colorProperty).trim()
+    return paint !== "" && css.supports("color", paint) ? paint : undefined
+  }
+
+  return (
+    <article
+      className="designer-inspector__spacing-card designer-inspector__semantic-card"
+      data-active-source-tokens={summary.tokens.join(" ")}
+      data-source-tokens={allTokens.join(" ")}
+    >
+      <div className="designer-inspector__spacing-heading">
+        <h4>{summary.name}</h4>
+      </div>
+      <dl aria-label={`${summary.name} values`} className="designer-inspector__semantic-values">
+        {Object.entries(summary.values).map(([field, semantic]) => {
+          const paint = colorPaint(semantic)
+          return (
+            <div key={field}>
+              <dt>{field}</dt>
+              <dd
+                data-source-tokens={semantic.tokens.join(" ")}
+                title={`${semantic.generatedValue ?? semantic.value} · ${semantic.tokens.join(", ")}`}
+              >
+                {paint === undefined ? null : (
+                  <span
+                    aria-hidden="true"
+                    className="designer-inspector__color-swatch"
+                    style={{ backgroundColor: paint }}
+                  />
+                )}
+                <span className="designer-inspector__semantic-value">{semantic.value}</span>
+              </dd>
+            </div>
+          )
+        })}
+      </dl>
+    </article>
+  )
+}
+
+const ElementInspector = ({
+  className,
+  direction,
+  element,
+  viewport,
+  viewportOptions,
+  writingMode,
+}: {
+  className: string
+  direction: "ltr" | "rtl"
+  element: Element
+  viewport: ViewportCondition
+  viewportOptions: ViewportOption[]
+  writingMode: string
+}) => {
+  const [sections, setSections] = useState<UtilitySection[] | undefined>(undefined)
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    let current = true
+    setSections(undefined)
+    setError(undefined)
+    void inspectWind4ClassName(className, { direction, viewport, writingMode })
+      .then((nextSections) => {
+        if (current) {
+          setSections(nextSections)
+        }
+      })
+      .catch((reason: unknown) => {
+        if (current) {
+          setError(reason instanceof Error ? reason.message : String(reason))
+        }
+      })
+    return () => {
+      current = false
+    }
+  }, [className, direction, viewport, writingMode])
+
+  return (
+    <aside
+      aria-busy={sections === undefined && error === undefined}
+      aria-label="Element inspector"
+      className="designer-inspector"
+    >
+      <header className="designer-inspector__header">
+        <h2>Properties</h2>
+      </header>
+      {error === undefined ? null : (
+        <p className="designer-inspector__message designer-inspector__message--error" role="alert">
+          {error}
+        </p>
+      )}
+      {error !== undefined || sections !== undefined ? null : (
+        <p aria-live="polite" className="designer-inspector__message" role="status">
+          Reading utilities...
+        </p>
+      )}
+      {sections?.length === 0 ? (
+        <p aria-live="polite" className="designer-inspector__message" role="status">
+          No utility classes
+        </p>
+      ) : null}
+      {sections?.map((section) => (
+        <section className="designer-inspector__section" key={section.name}>
+          <h3>{section.name}</h3>
+          {section.semantic.length === 0 ? null : (
+            <div
+              className="designer-inspector__spacing"
+              data-source-tokens={[...new Set(section.semantic.map(({ token }) => token))].join(
+                " ",
+              )}
+            >
+              {resolveViewportSemanticCards(section.semantic, viewport, viewportOptions).map(
+                (summary) => (
+                  <SemanticCard
+                    allTokens={[
+                      ...new Set(
+                        section.semantic
+                          .filter(({ card }) => card === summary.name)
+                          .map(({ token }) => token),
+                      ),
+                    ]}
+                    element={element}
+                    key={summary.name}
+                    summary={summary}
+                  />
+                ),
+              )}
+            </div>
+          )}
+          {section.spacing.length === 0 ? null : (
+            <div
+              className="designer-inspector__spacing"
+              data-source-tokens={[
+                ...new Set(section.spacing.flatMap(({ tokens }) => tokens)),
+              ].join(" ")}
+            >
+              {(["Padding", "Margin"] as const).map((name) => {
+                const summary = resolveViewportSpacing(
+                  section.spacing,
+                  name,
+                  viewport,
+                  viewportOptions,
+                )
+                const allTokens = section.spacing
+                  .filter((candidate) => candidate.name === name)
+                  .flatMap(({ tokens }) => tokens)
+                return summary === undefined ? null : (
+                  <SpacingCard allTokens={allTokens} key={name} name={name} summary={summary} />
+                )
+              })}
+            </div>
+          )}
+          <div className="designer-inspector__utilities">
+            {section.utilities.map((utility, index) => (
+              <article
+                className={`designer-inspector__utility${utility.known ? "" : " designer-inspector__utility--unknown"}`}
+                data-utility-token={utility.token}
+                key={`${utility.token}-${index}`}
+              >
+                <div className="designer-inspector__utility-heading">
+                  <code className="designer-inspector__token">{utility.token}</code>
+                  {utility.known ? null : (
+                    <span className="designer-inspector__unknown">Unknown</span>
+                  )}
+                </div>
+                {utility.conditions.length === 0 ? null : (
+                  <div aria-label="Conditions" className="designer-inspector__conditions">
+                    {utility.conditions.map((condition) => (
+                      <code key={condition}>{condition}</code>
+                    ))}
+                  </div>
+                )}
+                {utility.rules.map((rule, ruleIndex) => (
+                  <div className="designer-inspector__rule" key={`${rule.selector}-${ruleIndex}`}>
+                    <div className="designer-inspector__target">
+                      <span>Target</span>
+                      {[
+                        ...rule.parents.filter((parent) => !parent.startsWith("@")),
+                        rule.selector,
+                      ].map((selector) => (
+                        <code key={selector} title={selector}>
+                          {selector}
+                        </code>
+                      ))}
+                    </div>
+                    {rule.parents.filter((parent) => parent.startsWith("@")).length === 0 ? null : (
+                      <div
+                        aria-label="Generated conditions"
+                        className="designer-inspector__conditions"
+                      >
+                        {rule.parents
+                          .filter((parent) => parent.startsWith("@"))
+                          .map((condition) => (
+                            <code key={condition}>{condition}</code>
+                          ))}
+                      </div>
+                    )}
+                    <dl className="designer-inspector__declarations">
+                      {rule.declarations.map((declaration, declarationIndex) => (
+                        <div key={`${declaration.property}-${declarationIndex}`}>
+                          <dt>{declaration.property}</dt>
+                          <dd title={declaration.value}>{declaration.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+    </aside>
+  )
+}
+
 const Designer = () => {
   const [routes, setRoutes] = useState<RouteRecord[]>([])
   const [heights, setHeights] = useState<Record<string, number>>({})
@@ -546,6 +977,8 @@ const Designer = () => {
   const [spacePanning, setSpacePanning] = useState(false)
   const [inspection, setInspection] = useState<InspectedElement | undefined>(undefined)
   const [clearInspection, setClearInspection] = useState(0)
+  const [viewportOptions, setViewportOptions] = useState<ViewportOption[]>([])
+  const [viewport, setViewport] = useState<ViewportCondition>("Default")
   const flow = useRef<ReactFlowInstance<PageNode> | undefined>(undefined)
   const iframePan = useRef<
     | {
@@ -555,6 +988,19 @@ const Designer = () => {
     | undefined
   >(undefined)
   const fittedRoutes = useRef("")
+  const viewportOption = viewportOptions.find(({ condition }) => condition === viewport)
+
+  useEffect(() => {
+    let current = true
+    void getWind4ViewportOptions().then((options) => {
+      if (current) {
+        setViewportOptions(options)
+      }
+    })
+    return () => {
+      current = false
+    }
+  }, [])
 
   useEffect(() => {
     let stopped = false
@@ -700,6 +1146,9 @@ const Designer = () => {
   }, [activateTool, clearSelectedElement, tool])
 
   const nodes = useMemo<PageNode[]>(() => {
+    if (viewportOption === undefined) {
+      return []
+    }
     const positioned = layoutDesignRoutes(
       routes.map(({ route }) => ({
         route,
@@ -707,10 +1156,10 @@ const Designer = () => {
       })),
     )
 
+    const horizontalScale = (viewportOption.width + 120) / (frameWidth + 120)
     return positioned.map(({ route, height, position }) => ({
       id: route,
       type: "page",
-      position,
       data: {
         clearInspection,
         contentHeight: height,
@@ -726,11 +1175,13 @@ const Designer = () => {
         onPanStart: startViewportPan,
         onSpacePanning: setSpacePanning,
         route,
+        viewportWidth: viewportOption.width,
       },
       draggable: false,
       height: height + frameHeaderHeight,
       selectable: false,
-      width: frameWidth,
+      width: viewportOption.width,
+      position: { x: position.x * horizontalScale, y: position.y },
     }))
   }, [
     activateTool,
@@ -745,10 +1196,11 @@ const Designer = () => {
     spacePanning,
     startViewportPan,
     tool,
+    viewportOption?.width,
   ])
 
   useEffect(() => {
-    const routeKey = routes.map(({ route }) => route).join("\n")
+    const routeKey = `${viewport}\n${routes.map(({ route }) => route).join("\n")}`
     const allFramesMeasured = routes.every(({ route }) => heights[route] !== undefined)
 
     if (!allFramesMeasured || fittedRoutes.current === routeKey) {
@@ -757,13 +1209,16 @@ const Designer = () => {
 
     fittedRoutes.current = routeKey
     void flow.current?.fitView({ duration: 200, padding: 0.08 })
-  }, [heights, nodes, routes])
+  }, [heights, nodes, routes, viewport])
 
   if (error !== undefined) {
     return <main className="designer-state designer-state--error">{error}</main>
   }
   if (routes.length === 0) {
     return <main className="designer-state">Loading site routes...</main>
+  }
+  if (viewportOption === undefined) {
+    return <main className="designer-state">Reading viewport breakpoints...</main>
   }
 
   return (
@@ -794,6 +1249,21 @@ const Designer = () => {
         <Background color="#d0d0d0" gap={24} size={1} variant={BackgroundVariant.Dots} />
         <Controls position="bottom-right" showInteractive={false} />
       </ReactFlow>
+      <label className="designer-viewport-control">
+        <span>Viewport</span>
+        <select
+          aria-label="Viewport breakpoint"
+          onChange={(event) => setViewport(event.target.value as ViewportCondition)}
+          value={viewport}
+        >
+          {viewportOptions.map((option) => (
+            <option key={option.condition} value={option.condition}>
+              {option.label}
+              {option.threshold === "" ? "" : ` — ${option.threshold}`}
+            </option>
+          ))}
+        </select>
+      </label>
       <nav aria-label="Canvas tools" className="designer-toolbar">
         <button
           aria-label="Pan tool (V)"
@@ -817,9 +1287,15 @@ const Designer = () => {
         </button>
       </nav>
       {inspection === undefined ? null : (
-        <aside aria-label="Element inspector" className="designer-inspector">
-          <code>{inspection.className}</code>
-        </aside>
+        <ElementInspector
+          className={inspection.className}
+          direction={inspection.direction}
+          element={inspection.element}
+          viewport={viewport}
+          viewportOptions={viewportOptions}
+          writingMode={inspection.writingMode}
+          key={`${inspection.route}\u0000${inspection.className}\u0000${inspection.direction}\u0000${inspection.writingMode}`}
+        />
       )}
     </main>
   )

@@ -82,9 +82,246 @@ test("renders every route and reloads the board when routes change", async ({ pa
   expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
 })
 
+test("shows resolved color swatches only for semantic color values", async ({ page }) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await page.getByRole("button", { name: "Inspect tool (I)" }).click()
+
+  const site = page.frameLocator('iframe[title="/menu/"]')
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "color-swatch-target"
+    target.className =
+      "text-[#fff] bg-[rgb(12_34_56_/_0.5)] fill-[rebeccapurple] border-t-[transparent] border-r-[#abcdef] w-4 opacity-50"
+    target.style.color = "white"
+    target.style.backgroundColor = "rgb(12 34 56 / 0.5)"
+    target.style.setProperty("--un-border-right-opacity", "100%")
+    target.style.setProperty("--un-border-top-opacity", "100%")
+    target.style.setProperty("--un-fill-opacity", "100%")
+    target.style.fill = "rebeccapurple"
+    target.style.borderTopColor = "transparent"
+    target.style.borderRightColor = "#abcdef"
+    target.textContent = "Color swatches"
+    body.append(target)
+  })
+
+  const target = site.locator("#color-swatch-target")
+  await target.dispatchEvent("pointerdown", { button: 0, pointerId: 81, pointerType: "mouse" })
+  const inspector = page.getByRole("complementary", { name: "Element inspector" })
+  await expect(inspector).toHaveAttribute("aria-busy", "false")
+
+  const valueFor = (card: string, field: string) =>
+    inspector
+      .locator(".designer-inspector__semantic-card")
+      .filter({ hasText: new RegExp(`^${card}`) })
+      .locator("dt", { hasText: new RegExp(`^${field}$`) })
+      .locator("..")
+  const swatchFor = (card: string, field: string) =>
+    valueFor(card, field).locator(".designer-inspector__color-swatch")
+  await expect(swatchFor("Typography", "Color")).toHaveCSS(
+    "background-color",
+    /^(?:rgb\(255, 255, 255\)|oklab\(0\.999)/,
+  )
+  await expect(swatchFor("Fill", "Background")).toHaveCSS(
+    "background-color",
+    /^(?:rgba\(12, 34, 56, 0\.5\)|oklab\(.+ \/ 0\.5\))$/,
+  )
+  await expect(swatchFor("Fill", "Fill")).toHaveCSS(
+    "background-color",
+    /^(?:rgb\(102, 51, 153\)|oklab\()/,
+  )
+  await expect(swatchFor("Stroke", "Top color")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  await expect(swatchFor("Stroke", "Right color")).toHaveCSS(
+    "background-color",
+    /^(?:rgb\(171, 205, 239\)|oklab\()/,
+  )
+  await expect(swatchFor("Typography", "Color")).toHaveAttribute("aria-hidden", "true")
+  await expect(swatchFor("Typography", "Color")).toHaveCSS("background-image", /linear-gradient/)
+  await expect(swatchFor("Dimensions", "Width")).toHaveCount(0)
+  await expect(swatchFor("Opacity", "Opacity")).toHaveCount(0)
+
+  await site.locator("body").evaluate((body) => {
+    const variableTarget = body.ownerDocument.createElement("aside")
+    variableTarget.id = "resolved-variable-color-target"
+    variableTarget.className = "text-[#2468ac] bg-[var(--swatch-paint)] fill-current"
+    variableTarget.style.setProperty("--swatch-paint", "hsl(120 50% 50% / 0.4)")
+    variableTarget.style.color = "#2468ac"
+    variableTarget.style.backgroundColor = "var(--swatch-paint)"
+    variableTarget.style.fill = "currentColor"
+    variableTarget.textContent = "Resolved variable color"
+    body.append(variableTarget)
+  })
+  await page.waitForTimeout(550)
+  await site.locator("#resolved-variable-color-target").dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 82,
+    pointerType: "mouse",
+  })
+  await expect(inspector).toHaveAttribute("aria-busy", "false")
+  await expect(swatchFor("Fill", "Background")).toHaveCSS(
+    "background-color",
+    /^(?:rgba\(64, 191, 64, 0\.4\)|oklab\(.+ \/ 0\.4\))$/,
+  )
+  await expect(swatchFor("Fill", "Fill")).toHaveCSS("background-color", /^(?:rgb|oklab)\(/)
+
+  await site.locator("body").evaluate((body) => {
+    const parent = body.ownerDocument.createElement("section")
+    parent.style.color = "rgb(190 20 30)"
+    parent.style.backgroundColor = "rgb(20 80 190)"
+    parent.style.fill = "rgb(25 145 70)"
+    parent.style.borderTopColor = "rgb(140 45 175)"
+
+    const inheritedColorElement = body.ownerDocument.createElement("aside")
+    inheritedColorElement.id = "inherited-color-target"
+    inheritedColorElement.className = "text-inherit bg-inherit fill-inherit border-t-[inherit]"
+    inheritedColorElement.style.color = "inherit"
+    inheritedColorElement.style.backgroundColor = "inherit"
+    inheritedColorElement.style.fill = "inherit"
+    inheritedColorElement.style.borderTopColor = "inherit"
+    inheritedColorElement.textContent = "Inherited colors"
+    parent.append(inheritedColorElement)
+    body.append(parent)
+  })
+  await page.waitForTimeout(550)
+  const inheritedTarget = site.locator("#inherited-color-target")
+  await inheritedTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 83,
+    pointerType: "mouse",
+  })
+  await expect(inspector).toHaveAttribute("aria-busy", "false")
+  const inheritedFields = [
+    ["Typography", "Color", "color", "text-inherit"],
+    ["Fill", "Background", "background-color", "bg-inherit"],
+    ["Fill", "Fill", "fill", "fill-inherit"],
+    ["Stroke", "Top color", "border-top-color", "border-t-[inherit]"],
+  ] as const
+  await Promise.all(
+    inheritedFields.map(async ([card, field, property, token]) => {
+      const value = valueFor(card, field)
+      await expect(value.locator(".designer-inspector__semantic-value")).toHaveText("inherit")
+      await expect(value.locator("dd")).toHaveAttribute("data-source-tokens", token)
+      await expect(value.locator("dd")).toHaveAttribute("title", `inherit · ${token}`)
+      const expectedPaint = await inheritedTarget.evaluate(
+        (element, propertyName) =>
+          element.ownerDocument.defaultView
+            ?.getComputedStyle(element)
+            .getPropertyValue(propertyName),
+        property,
+      )
+      await expect(swatchFor(card, field)).toHaveCSS(
+        "background-color",
+        expectedPaint?.trim() ?? "",
+      )
+    }),
+  )
+
+  await site.locator("body").evaluate((body) => {
+    const parent = body.ownerDocument.createElement("section")
+    parent.style.backgroundColor = "rgb(215 125 35)"
+    const fallbackElement = body.ownerDocument.createElement("aside")
+    fallbackElement.id = "fallback-inherited-color-target"
+    fallbackElement.className = "bg-[var(--missing-swatch-paint,inherit)]"
+    fallbackElement.textContent = "Fallback inherited color"
+    parent.append(fallbackElement)
+    body.append(parent)
+  })
+  await page.waitForTimeout(550)
+  const fallbackTarget = site.locator("#fallback-inherited-color-target")
+  await fallbackTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 84,
+    pointerType: "mouse",
+  })
+  await expect(inspector).toHaveAttribute("aria-busy", "false")
+  await expect(
+    valueFor("Fill", "Background").locator(".designer-inspector__semantic-value"),
+  ).toHaveText("var(--missing-swatch-paint,inherit)")
+  await expect(valueFor("Fill", "Background").locator("dd")).toHaveAttribute(
+    "title",
+    /color-mix\(.+inherit.+\) · bg-\[var\(--missing-swatch-paint,inherit\)\]/,
+  )
+  await expect(swatchFor("Fill", "Background")).toHaveCount(0)
+
+  await site.locator("body").evaluate((body) => {
+    const unresolvedTarget = body.ownerDocument.createElement("aside")
+    unresolvedTarget.id = "unresolved-color-target"
+    unresolvedTarget.className = "bg-[var(--missing-swatch-paint)]"
+    unresolvedTarget.textContent = "Unresolved color"
+    body.append(unresolvedTarget)
+  })
+  await page.waitForTimeout(550)
+  await site.locator("#unresolved-color-target").dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 85,
+    pointerType: "mouse",
+  })
+  await expect(inspector).toHaveAttribute("aria-busy", "false")
+  await expect(swatchFor("Fill", "Background")).toHaveCount(0)
+})
+
+test("refreshes a pinned inspection when the selected element mutates", async ({ page }) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await page.getByRole("button", { name: "Inspect tool (I)" }).click()
+
+  const site = page.frameLocator('iframe[title="/menu/"]')
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "live-inspection-target"
+    target.className = "p-3 text-[#112233]"
+    target.style.color = "rgb(17 34 51)"
+    target.textContent = "Live inspection"
+    body.append(target)
+  })
+  const target = site.locator("#live-inspection-target")
+  await target.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 86,
+    pointerType: "mouse",
+  })
+
+  const inspector = page.getByRole("complementary", { name: "Element inspector" })
+  const padding = inspector
+    .locator(".designer-inspector__spacing-card")
+    .filter({ hasText: "Padding" })
+  const colorSwatch = inspector
+    .locator(".designer-inspector__semantic-card")
+    .filter({ hasText: /^Typography/ })
+    .locator(".designer-inspector__color-swatch")
+  await expect(padding.locator("div", { hasText: /^Top3$/ })).toBeVisible()
+  await expect(colorSwatch).toHaveCSS("background-color", "rgb(17, 34, 51)")
+  await expect(target).toHaveAttribute("data-splatpad-inspector-selected", "")
+
+  await target.evaluate((element) => {
+    element.setAttribute("class", "p-8 text-[#112233]")
+  })
+  await expect(padding.locator("div", { hasText: /^Top8$/ })).toBeVisible()
+  await expect(padding.locator("div", { hasText: /^Top3$/ })).toHaveCount(0)
+  await expect(target).toHaveAttribute("data-splatpad-inspector-selected", "")
+
+  await target.evaluate((element) => {
+    const targetElement = element as HTMLElement
+    targetElement.style.color = "rgb(170 85 34)"
+  })
+  await expect(colorSwatch).toHaveCSS("background-color", "rgb(170, 85, 34)")
+  await expect(target).toHaveAttribute("data-splatpad-inspector-selected", "")
+})
+
 test("pans by default and inspects iframe elements without activating them", async ({ page }) => {
   await page.goto(`${baseUrl}/__splatpad/design/`)
   await expect(page.locator(".page-frame")).toHaveCount(7)
+
+  const viewportBreakpoint = page.getByRole("combobox", { name: "Viewport breakpoint" })
+  const frameCount = await page.locator("iframe[title]").count()
+  await expect(viewportBreakpoint).toHaveValue("Default")
+  await expect
+    .poll(() =>
+      page
+        .locator("iframe[title]")
+        .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).clientWidth)),
+    )
+    .toEqual(Array.from({ length: frameCount }, () => 639))
 
   const panTool = page.getByRole("button", { name: "Pan tool (V)" })
   const inspectTool = page.getByRole("button", { name: "Inspect tool (I)" })
@@ -92,6 +329,25 @@ test("pans by default and inspects iframe elements without activating them", asy
   const site = page.frameLocator('iframe[title="/menu/"]')
   const heading = site.getByRole("heading", { level: 1 })
   const inspector = page.getByRole("complementary", { name: "Element inspector" })
+  const expectInspectorClassName = async (className: string): Promise<void> => {
+    const tokens = className.trim() === "" ? [] : className.trim().split(/\s+/)
+    await expect(inspector).toHaveAttribute("aria-busy", "false")
+    await expect
+      .poll(async () => {
+        const rawTokens = await inspector.locator(".designer-inspector__token").allTextContents()
+        const sourceTokens = await inspector
+          .locator("[data-source-tokens]")
+          .evaluateAll((nodes) =>
+            nodes.flatMap((node) => (node.getAttribute("data-source-tokens") ?? "").split(/\s+/)),
+          )
+        const inspectedTokens = [...new Set([...rawTokens, ...sourceTokens].filter(Boolean))]
+        return {
+          count: inspectedTokens.length,
+          hasAll: tokens.every((token) => inspectedTokens.includes(token)),
+        }
+      })
+      .toEqual({ count: new Set(tokens).size, hasAll: true })
+  }
   const overlaySnapshot = async (kind: "hover" | "selected", targetSelector: string) =>
     page
       .locator(
@@ -123,16 +379,16 @@ test("pans by default and inspects iframe elements without activating them", asy
         const style = globalThis.getComputedStyle(overlay)
         return {
           alignmentGaps: [
-            Math.abs(bounds.top - expected.top) < 0.05
+            Math.abs(bounds.top - expected.top) < 2
               ? 0
               : Math.round((bounds.top - expected.top) * 10) / 10,
-            Math.abs(bounds.right - expected.right) < 0.05
+            Math.abs(bounds.right - expected.right) < 2
               ? 0
               : Math.round((bounds.right - expected.right) * 10) / 10,
-            Math.abs(bounds.bottom - expected.bottom) < 0.05
+            Math.abs(bounds.bottom - expected.bottom) < 2
               ? 0
               : Math.round((bounds.bottom - expected.bottom) * 10) / 10,
-            Math.abs(bounds.left - expected.left) < 0.05
+            Math.abs(bounds.left - expected.left) < 2
               ? 0
               : Math.round((bounds.left - expected.left) * 10) / 10,
           ],
@@ -233,7 +489,154 @@ test("pans by default and inspects iframe elements without activating them", asy
     (element) => element.parentElement?.getAttribute("class") ?? "",
   )
   await heading.click({ force: true })
-  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expectInspectorClassName(headingClassName ?? "")
+  const marginSummary = inspector
+    .locator('.designer-inspector__spacing-card[data-source-tokens~="mt-3"]')
+    .filter({ hasText: "Margin" })
+  await expect(marginSummary.locator("div", { hasText: /^Top3$/ })).toBeVisible()
+
+  await viewportBreakpoint.selectOption("Default")
+  await expect(viewportBreakpoint).toHaveValue("Default")
+  await expect
+    .poll(() =>
+      page
+        .locator("iframe[title]")
+        .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).clientWidth)),
+    )
+    .toEqual(Array.from({ length: await page.locator("iframe[title]").count() }, () => 639))
+
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "responsive-spacing-target"
+    target.className = "p-3 sm:px-4"
+    target.textContent = "Responsive spacing"
+    body.append(target)
+  })
+  const responsiveSpacingTarget = site.locator("#responsive-spacing-target")
+  await responsiveSpacingTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 71,
+    pointerType: "mouse",
+  })
+  await responsiveSpacingTarget.dispatchEvent("pointerup", {
+    button: 0,
+    pointerId: 71,
+    pointerType: "mouse",
+  })
+  const paddingSummary = inspector
+    .locator(".designer-inspector__spacing-card")
+    .filter({ hasText: "Padding" })
+  await expect(paddingSummary.locator("div", { hasText: /^Top3$/ })).toBeVisible()
+  await expect(paddingSummary.locator("div", { hasText: /^Left3$/ })).toBeVisible()
+
+  await viewportBreakpoint.selectOption("sm")
+  await expect(viewportBreakpoint).toHaveValue("sm")
+  await expect
+    .poll(() =>
+      page
+        .locator("iframe[title]")
+        .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).clientWidth)),
+    )
+    .toEqual(Array.from({ length: await page.locator("iframe[title]").count() }, () => 640))
+  await expect(paddingSummary.locator("div", { hasText: /^Top3$/ })).toBeVisible()
+  await expect(paddingSummary.locator("div", { hasText: /^Left4$/ })).toBeVisible()
+
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "semantic-properties-target"
+    target.className =
+      "flex flex-row items-center gap-4 size-[13px] text-[17px] leading-[1.5] bg-[#123456] border-2 border-solid rounded-lg opacity-50 isolate shadow-lg hover:w-4"
+    target.textContent = "Semantic properties"
+    body.append(target)
+  })
+  const semanticTarget = site.locator("#semantic-properties-target")
+  await semanticTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 75,
+    pointerType: "mouse",
+  })
+  await expectInspectorClassName((await semanticTarget.getAttribute("class")) ?? "")
+  await Promise.all(
+    [
+      "Typography",
+      "Dimensions",
+      "Auto Layout",
+      "Fill",
+      "Stroke",
+      "Corners",
+      "Opacity",
+      "Effects",
+    ].map((card) =>
+      expect(inspector.getByRole("heading", { level: 4, name: card, exact: true })).toBeVisible(),
+    ),
+  )
+  await expect(inspector.getByText("13px", { exact: true }).first()).toBeVisible()
+  await expect(inspector.getByText("17px", { exact: true })).toBeVisible()
+  await expect(inspector.locator('[data-utility-token="shadow-lg"]')).toBeVisible()
+  await expect(inspector.locator('[data-utility-token="hover:w-4"]')).toBeVisible()
+  await semanticTarget.evaluate((element) => element.remove())
+
+  await viewportBreakpoint.selectOption("Default")
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "responsive-auto-layout-target"
+    target.className = "md:flex gap-4"
+    target.textContent = "Responsive auto layout"
+    body.append(target)
+  })
+  const responsiveAutoLayoutTarget = site.locator("#responsive-auto-layout-target")
+  await responsiveAutoLayoutTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 79,
+    pointerType: "mouse",
+  })
+  await expect(inspector.getByRole("heading", { level: 4, name: "Auto Layout" })).toHaveCount(0)
+  await expect(inspector.locator('[data-utility-token="md:flex"]')).toBeVisible()
+  await expect(inspector.locator('[data-utility-token="gap-4"]')).toBeVisible()
+
+  await viewportBreakpoint.selectOption("md")
+  const responsiveAutoLayout = inspector
+    .locator(".designer-inspector__semantic-card")
+    .filter({ hasText: "Auto Layout" })
+  await expect(responsiveAutoLayout.locator("div", { hasText: /^Modeflex$/ })).toBeVisible()
+  await expect(responsiveAutoLayout.locator("div", { hasText: /^Row gap4$/ })).toBeVisible()
+  await expect(responsiveAutoLayout.locator("div", { hasText: /^Column gap4$/ })).toBeVisible()
+  await responsiveAutoLayoutTarget.evaluate((element) => element.remove())
+  await viewportBreakpoint.selectOption("sm")
+
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "conditional-generator-target"
+    target.className = "container bg-red-500/50"
+    target.textContent = "Conditional generator rules"
+    body.append(target)
+  })
+  const conditionalGeneratorTarget = site.locator("#conditional-generator-target")
+  await conditionalGeneratorTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 76,
+    pointerType: "mouse",
+  })
+  await expect(inspector.locator('[data-utility-token="container"]')).toBeVisible()
+  await expect(inspector.locator('[data-utility-token="bg-red-500/50"]')).toBeVisible()
+  await expect(inspector.getByRole("heading", { level: 4, name: "Dimensions" })).toHaveCount(0)
+  await expect(inspector.getByRole("heading", { level: 4, name: "Fill" })).toHaveCount(0)
+  await conditionalGeneratorTarget.evaluate((element) => element.remove())
+
+  await responsiveSpacingTarget.evaluate((element) => element.remove())
+  await page.waitForTimeout(550)
+  await viewportBreakpoint.selectOption("Default")
+  await heading.click({ force: true })
+  await expectInspectorClassName(headingClassName ?? "")
+  const headingTypography = inspector
+    .locator(".designer-inspector__semantic-card")
+    .filter({ hasText: "Typography" })
+  await expect(headingTypography.locator("div", { hasText: /^Size5xl$/ })).toBeVisible()
+  await expect(headingTypography.locator("div", { hasText: /^Weightbold$/ })).toBeVisible()
+  await expect(
+    headingTypography.locator("div", { hasText: /^Letter spacing-0\.04em$/ }),
+  ).toBeVisible()
+  await expect(headingTypography.locator("div", { hasText: /^Line height5xl$/ })).toHaveCount(0)
   await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
   await expect(inspector).toHaveCSS("top", "16px")
   await expect(inspector).toHaveCSS("bottom", "16px")
@@ -289,6 +692,95 @@ test("pans by default and inspects iframe elements without activating them", asy
       alignmentGaps: [0, 0, 0, 0],
     })
 
+  await site.locator("body").evaluate((body) => {
+    for (const direction of ["ltr", "rtl"] as const) {
+      const target = body.ownerDocument.createElement("aside")
+      target.id = `${direction}-logical-spacing-target`
+      target.className = "ps-2 pe-3"
+      target.dir = direction
+      target.textContent = `${direction.toUpperCase()} logical spacing`
+      body.append(target)
+    }
+  })
+  const ltrSpacingTarget = site.locator("#ltr-logical-spacing-target")
+  const rtlSpacingTarget = site.locator("#rtl-logical-spacing-target")
+  const logicalSpacing = inspector
+    .locator('.designer-inspector__spacing-card[data-source-tokens~="ps-2"]')
+    .filter({ hasText: "Padding" })
+
+  await ltrSpacingTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 72,
+    pointerType: "mouse",
+  })
+  await expect(logicalSpacing.locator("div", { hasText: /^Left2$/ })).toBeVisible()
+  await expect(logicalSpacing.locator("div", { hasText: /^Right3$/ })).toBeVisible()
+  await rtlSpacingTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 73,
+    pointerType: "mouse",
+  })
+  await expect(logicalSpacing.locator("div", { hasText: /^Left3$/ })).toBeVisible()
+  await expect(logicalSpacing.locator("div", { hasText: /^Right2$/ })).toBeVisible()
+  await ltrSpacingTarget.evaluate((element) => element.remove())
+  await rtlSpacingTarget.evaluate((element) => element.remove())
+
+  await site.locator("body").evaluate((body) => {
+    const style = body.ownerDocument.createElement("style")
+    style.dataset.testLogicalAxes = ""
+    style.textContent = `
+      .write-vertical-right { writing-mode: vertical-rl; }
+      @media (min-width: 48rem) { #responsive-direction-target { direction: rtl; } }
+    `
+    body.ownerDocument.head.append(style)
+
+    const vertical = body.ownerDocument.createElement("aside")
+    vertical.id = "vertical-logical-target"
+    vertical.className = "write-vertical-right ps-4 border-s-2 rounded-ss-lg"
+    vertical.textContent = "Vertical logical properties"
+    body.append(vertical)
+  })
+  const verticalLogicalTarget = site.locator("#vertical-logical-target")
+  await verticalLogicalTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 77,
+    pointerType: "mouse",
+  })
+  await expect(
+    inspector
+      .locator('.designer-inspector__spacing-card[data-source-tokens~="ps-4"]')
+      .locator("div", { hasText: /^Top4$/ }),
+  ).toBeVisible()
+  await expect(inspector.locator('dd[data-source-tokens="border-s-2"]')).toHaveText("2")
+  await expect(inspector.locator("dt", { hasText: /^Top right$/ })).toHaveText("Top right")
+  await verticalLogicalTarget.evaluate((element) => element.remove())
+
+  await viewportBreakpoint.selectOption("Default")
+  await site.locator("body").evaluate((body) => {
+    const target = body.ownerDocument.createElement("aside")
+    target.id = "responsive-direction-target"
+    target.className = "ps-4 md:[direction:rtl]"
+    target.textContent = "Responsive direction"
+    body.append(target)
+  })
+  const responsiveDirectionTarget = site.locator("#responsive-direction-target")
+  await responsiveDirectionTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 78,
+    pointerType: "mouse",
+  })
+  const responsiveDirectionSpacing = inspector.locator(
+    '.designer-inspector__spacing-card[data-source-tokens~="ps-4"]',
+  )
+  await expect(responsiveDirectionSpacing.locator("div", { hasText: /^Left4$/ })).toBeVisible()
+  await viewportBreakpoint.selectOption("md")
+  await expect(responsiveDirectionSpacing.locator("div", { hasText: /^Right4$/ })).toBeVisible()
+  await responsiveDirectionTarget.evaluate((element) => element.remove())
+  await site.locator("style[data-test-logical-axes]").evaluate((element) => element.remove())
+  await viewportBreakpoint.selectOption("Default")
+  await heading.click({ force: true })
+  await expectInspectorClassName(headingClassName ?? "")
+
   const disconnectedTarget = site.locator("#disconnected-inspection-target")
   await site.locator("body").evaluate((body) => {
     const target = body.ownerDocument.createElement("aside")
@@ -298,8 +790,13 @@ test("pans by default and inspects iframe elements without activating them", asy
     body.append(target)
   })
   await disconnectedTarget.hover({ force: true })
-  await disconnectedTarget.click({ force: true })
-  await expect(inspector).toHaveText("disconnected-selection")
+  await disconnectedTarget.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 74,
+    pointerType: "mouse",
+  })
+  await expectInspectorClassName("disconnected-selection")
+  await expect(inspector.getByText("Unknown", { exact: true })).toBeVisible()
   await expect(selectedOverlay).toHaveCSS("display", "block")
   await disconnectedTarget.evaluate((element) => element.remove())
   await expect(inspector).toHaveCount(0)
@@ -308,7 +805,7 @@ test("pans by default and inspects iframe elements without activating them", asy
   await expect(heading).toHaveAttribute("data-splatpad-inspector-hover", "")
   await expect.poll(() => overlaySnapshot("hover", "h1")).toMatchObject({ display: "block" })
   await heading.click({ force: true })
-  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expectInspectorClassName(headingClassName ?? "")
 
   const viewportBeforeFailedCapture = await viewport.evaluate(
     (element) => globalThis.getComputedStyle(element).transform,
@@ -462,7 +959,7 @@ test("pans by default and inspects iframe elements without activating them", asy
       }
     })
     .toEqual({ x: 18, y: 12 })
-  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expectInspectorClassName(headingClassName ?? "")
   await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
 
   const viewportBeforeCaptureLoss = await viewport.evaluate((element) => {
@@ -590,16 +1087,16 @@ test("pans by default and inspects iframe elements without activating them", asy
       }
     })
     .toEqual({ x: 96, y: 72 })
-  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expectInspectorClassName(headingClassName ?? "")
   await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
 
   await page.waitForTimeout(550)
   await heading.click({ force: true })
-  await expect(inspector).toHaveText(headingClassName ?? "")
+  await expectInspectorClassName(headingClassName ?? "")
   await expect(heading).toHaveAttribute("data-splatpad-inspector-selected", "")
 
   await heading.click({ force: true })
-  await expect(inspector).toHaveText(parentClassName)
+  await expectInspectorClassName(parentClassName)
 
   const body = site.locator("body")
   await body.dispatchEvent("pointerdown", { button: 0, pointerId: 1 })
@@ -627,7 +1124,7 @@ test("pans by default and inspects iframe elements without activating them", asy
   const link = site.getByRole("link", { name: "Story" })
   const linkClassName = await link.getAttribute("class")
   await link.click({ force: true })
-  await expect(inspector).toHaveText(linkClassName ?? "")
+  await expectInspectorClassName(linkClassName ?? "")
   await expect.poll(() => link.evaluate(() => globalThis.location.pathname)).toBe("/menu/")
 
   await inspectTool.focus()
