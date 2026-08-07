@@ -138,24 +138,29 @@ const waitForViewportToSettle = async (page: Page): Promise<void> => {
 const waitForCanvasReady = async (page: Page): Promise<void> => {
   await expect
     .poll(() =>
-      page.locator(".page-frame__preview").evaluateAll((frames) =>
-        frames.every((element) => {
-          const frame = element as HTMLIFrameElement
-          const document = frame.contentDocument
-          if (document === null || document.readyState !== "complete") {
-            return false
-          }
-          const body = document.body
-          const root = document.documentElement
-          const measuredHeight = Math.max(
-            body?.scrollHeight ?? 0,
-            body?.offsetHeight ?? 0,
-            root.scrollHeight,
-            root.offsetHeight,
-            root.clientHeight,
-          )
-          return Number.parseFloat(frame.style.height) === measuredHeight
-        }),
+      page.locator(".page-frame__preview").evaluateAll(
+        (frames, initialHeight) =>
+          frames.every((element) => {
+            const frame = element as HTMLIFrameElement
+            const document = frame.contentDocument
+            if (document === null || document.readyState !== "complete") {
+              return false
+            }
+            const renderedHeight = frame.style.height
+            frame.style.height = `${initialHeight}px`
+            const body = document.body
+            const root = document.documentElement
+            const measuredHeight = Math.max(
+              body?.scrollHeight ?? 0,
+              body?.offsetHeight ?? 0,
+              root.scrollHeight,
+              root.offsetHeight,
+              root.clientHeight,
+            )
+            frame.style.height = renderedHeight
+            return Number.parseFloat(renderedHeight) === measuredHeight
+          }),
+        900,
       ),
     )
     .toBe(true)
@@ -503,6 +508,168 @@ test("shows generated at-rule conditions separately from raw utility targets", a
   expect(await sidebar.locator(".designer-inspector__target code").allTextContents()).not.toEqual(
     expect.arrayContaining([expect.stringMatching(/^@/)]),
   )
+})
+
+test("shrinks responsive frames and downstream layout after changing viewport", async ({
+  page,
+}) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await waitForCanvasReady(page)
+
+  const menuFrame = preview(page, "/menu/")
+  await menuFrame.evaluate((iframe) => {
+    const document = (iframe as HTMLIFrameElement).contentDocument!
+    document.body.innerHTML = '<main id="responsive-height-regression"></main>'
+    const style = document.createElement("style")
+    style.textContent = `
+      #responsive-height-regression { height: 1600px; }
+      @media (min-width: 768px) {
+        #responsive-height-regression { height: 100px; }
+      }
+    `
+    document.head.append(style)
+  })
+
+  const viewportControl = page.getByRole("combobox", { name: "Viewport breakpoint" })
+  await viewportControl.selectOption("sm")
+  await expect(menuFrame).toHaveCSS("height", "1600px")
+
+  await viewportControl.selectOption("md")
+  const menuFrameNode = page
+    .locator('.page-frame[data-route="/menu/"]')
+    .locator("xpath=ancestor::*[contains(@class, 'react-flow__node')][1]")
+  const storyFrameNode = page
+    .locator('.page-frame[data-route="/story/"]')
+    .locator("xpath=ancestor::*[contains(@class, 'react-flow__node')][1]")
+
+  await expect(menuFrame).toHaveCSS("height", "900px")
+  await expect(
+    page.locator('.page-frame[data-route="/menu/"] .page-frame__interaction-surface'),
+  ).toHaveCSS("height", "900px")
+  await expect
+    .poll(() => menuFrameNode.evaluate((node) => (node as HTMLElement).offsetHeight))
+    .toBe(944)
+  await expect
+    .poll(async () => {
+      const [menuTransform, storyTransform] = await Promise.all(
+        [menuFrameNode, storyFrameNode].map((node) =>
+          node.evaluate(
+            (element) => new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform).m42,
+          ),
+        ),
+      )
+      return storyTransform - menuTransform
+    })
+    .toBe(1_144)
+  await waitForViewportToSettle(page)
+})
+
+test("ignores a stale font measurement after the preview document is replaced", async ({
+  page,
+}) => {
+  const browserProblems: string[] = []
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserProblems.push(message.text())
+    }
+  })
+  page.on("pageerror", (error) => browserProblems.push(error.message))
+  let resolveStaleFontReady: (() => void) | undefined
+  const staleFontReady = new Promise<void>((resolve) => {
+    resolveStaleFontReady = resolve
+  })
+  await page.exposeFunction("waitForStaleFontReady", () => staleFontReady)
+  await page.exposeFunction("releaseStaleFontReady", () => {
+    if (resolveStaleFontReady === undefined) {
+      throw new Error("Expected the stale font promise resolver")
+    }
+    resolveStaleFontReady()
+  })
+  await page.addInitScript(() => {
+    const frameWindow = globalThis as unknown as {
+      waitForStaleFontReady?: () => Promise<void>
+    }
+    if (globalThis.location.pathname !== "/menu/") {
+      return
+    }
+
+    const fontReady = frameWindow.waitForStaleFontReady?.().then(() => document.fonts)
+    if (fontReady === undefined) {
+      throw new Error("Expected the stale font promise binding")
+    }
+    Object.defineProperty(document.fonts, "ready", { configurable: true, value: fontReady })
+  })
+
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await waitForCanvasReady(page)
+
+  const menuFrame = preview(page, "/menu/")
+  await menuFrame.evaluate(
+    (iframe) =>
+      new Promise<void>((resolve) => {
+        iframe.addEventListener("load", () => resolve(), { once: true })
+        ;(iframe as HTMLIFrameElement).srcdoc = `
+          <style>html, body { margin: 0; } main { height: 2200px; }</style>
+          <main id="replacement-document"></main>
+        `
+      }),
+  )
+  await expect(menuFrame).toHaveCSS("height", "2200px")
+  await menuFrame.evaluate((iframe) => {
+    const target = (iframe as HTMLIFrameElement).contentDocument?.querySelector<HTMLElement>(
+      "#replacement-document",
+    )
+    if (target === null || target === undefined) {
+      throw new Error("Expected the replacement document target")
+    }
+    target.style.height = "2500px"
+  })
+
+  await page.evaluate(async () => {
+    const designerWindow = globalThis as unknown as {
+      releaseStaleFontReady?: () => Promise<void>
+    }
+    const releaseFontBinding = designerWindow.releaseStaleFontReady
+    if (releaseFontBinding === undefined) {
+      throw new Error("Expected the stale font promise controller")
+    }
+
+    const requestFrame = globalThis.requestAnimationFrame.bind(globalThis)
+    const cancelFrame = globalThis.cancelAnimationFrame.bind(globalThis)
+    const queuedFrames = new Map<number, FrameRequestCallback>()
+    let nextFrame = 1_000_000
+    globalThis.requestAnimationFrame = (callback): number => {
+      const frame = nextFrame++
+      queuedFrames.set(frame, callback)
+      return frame
+    }
+    globalThis.cancelAnimationFrame = (frame): void => {
+      queuedFrames.delete(frame)
+    }
+
+    const viewportControl = document.querySelector<HTMLSelectElement>(
+      '[aria-label="Viewport breakpoint"]',
+    )
+    if (viewportControl === null) {
+      throw new Error("Expected the viewport control")
+    }
+    viewportControl.value = "md"
+    viewportControl.dispatchEvent(new Event("change", { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await releaseFontBinding()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    globalThis.requestAnimationFrame = requestFrame
+    globalThis.cancelAnimationFrame = cancelFrame
+    for (const callback of queuedFrames.values()) {
+      requestFrame(callback)
+    }
+  })
+
+  await expect(menuFrame).toHaveCSS("height", "2500px")
+  expect(browserProblems, "stale measurements must not emit browser errors").toEqual([])
 })
 
 test.describe("canvas tools", () => {
