@@ -1,0 +1,24 @@
+<nav aria-label="Cake order progress">
+  <ol class="grid grid-cols-5 gap-2">
+    {% for step in order_steps %}
+      <li>
+        {% if forloop.index < page.wizard_step %}
+          <a class="block rounded-2xl bg-[#dbe5cb] px-3 py-3 text-center text-xs font-bold text-[#425238]" href="{{ step.href }}">
+            <span class="block text-base" aria-hidden="true">✓</span>
+            {{ step.label }}
+          </a>
+        {% elsif forloop.index == page.wizard_step %}
+          <span class="block rounded-2xl bg-[#302b27] px-3 py-3 text-center text-xs font-bold text-white" aria-current="step">
+            <span class="block text-base" aria-hidden="true">{{ forloop.index }}</span>
+            {{ step.label }}
+          </span>
+        {% else %}
+          <span class="block rounded-2xl bg-[#f4e6d2] px-3 py-3 text-center text-xs font-bold text-[#62584f]">
+            <span class="block text-base" aria-hidden="true">{{ forloop.index }}</span>
+            {{ step.label }}
+          </span>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+</nav>

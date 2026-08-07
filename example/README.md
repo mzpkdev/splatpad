@@ -10,6 +10,9 @@ JSON trigger a full reload.
   `pages/journal/index.liquid` → `/journal/` and child pages such as
   `pages/journal/slow-mornings.html` → `/journal/slow-mornings/` and
   `pages/journal/seasonal-jam.liquid.html` → `/journal/seasonal-jam/`.
+- `pages/order/cake/` demonstrates a deeper route tree and a five-page wizard.
+  Each step is a distinct built page, from `/order/cake/` through
+  `/order/cake/review/`.
 - `.liquid`, `.html`, and `.liquid.html` are LiquidJS template aliases; the
   longest matching suffix determines the route stem.
 - `data/site.json` supplies global data and optional content keyed by canonical

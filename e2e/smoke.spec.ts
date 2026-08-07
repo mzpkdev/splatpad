@@ -38,6 +38,42 @@ const pages = [
     activeLink: "Journal",
   },
   {
+    route: "/order/",
+    title: "A cake worth gathering around | Crumb & Bloom",
+    heading: "A cake worth gathering around",
+    activeLink: "Order",
+  },
+  {
+    route: "/order/cake/",
+    title: "How many forks? | Crumb & Bloom",
+    heading: "How many forks?",
+    activeLink: "Order",
+  },
+  {
+    route: "/order/cake/flavor/",
+    title: "Choose your flavors | Crumb & Bloom",
+    heading: "Choose your flavors",
+    activeLink: "Order",
+  },
+  {
+    route: "/order/cake/finish/",
+    title: "Make it yours | Crumb & Bloom",
+    heading: "Make it yours",
+    activeLink: "Order",
+  },
+  {
+    route: "/order/cake/pickup/",
+    title: "When should it be ready? | Crumb & Bloom",
+    heading: "When should it be ready?",
+    activeLink: "Order",
+  },
+  {
+    route: "/order/cake/review/",
+    title: "Everything look delicious? | Crumb & Bloom",
+    heading: "Everything look delicious?",
+    activeLink: "Order",
+  },
+  {
     route: "/visit/",
     title: "Come by for something warm | Crumb & Bloom",
     heading: "Come by for something warm",
@@ -55,9 +91,10 @@ test.describe("Crumb & Bloom", () => {
       await expect(
         page.getByRole("heading", { level: 1, name: pageDefinition.heading }),
       ).toBeVisible()
-      await expect(page.getByRole("navigation").getByRole("link")).toHaveCount(5)
+      const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" })
+      await expect(primaryNavigation.getByRole("link")).toHaveCount(6)
       await expect(
-        page.getByRole("navigation").getByRole("link", { name: pageDefinition.activeLink }),
+        primaryNavigation.getByRole("link", { name: pageDefinition.activeLink }),
       ).toHaveAttribute("aria-current", "page")
       await expect(page.locator('link[rel="stylesheet"]')).toHaveAttribute(
         "href",
@@ -95,6 +132,26 @@ test.describe("Crumb & Bloom", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       "Why good bread takes the long way",
     )
+  })
+
+  test("cake order moves through every wizard step", async ({ page }) => {
+    await page.goto("/order/")
+    await page.getByRole("link", { name: "Build your cake" }).click()
+    await expect(page).toHaveURL(/\/order\/cake\/$/)
+
+    await page.getByRole("link", { name: /Full table/ }).click()
+    await page.getByRole("link", { name: /Vanilla & strawberry/ }).click()
+    await page.getByRole("link", { name: /Garden flowers/ }).click()
+    await page.getByRole("radio", { name: "Friday 19" }).check()
+    await page.getByRole("radio", { name: "9:00–11:00" }).check()
+    await expect(page.getByRole("radio", { name: "Friday 19" })).toBeChecked()
+    await expect(page.getByRole("radio", { name: "9:00–11:00" })).toBeChecked()
+    await page.getByRole("button", { name: "Review your order" }).click()
+
+    await expect(page).toHaveURL(
+      /\/order\/cake\/review\/\?pickup-date=19&pickup-window=9%3A00%E2%80%9311%3A00$/,
+    )
+    await expect(page.getByText("$72", { exact: true })).toBeVisible()
   })
 
   test("missing nested routes stay missing", async ({ request }) => {

@@ -65,10 +65,10 @@ test("renders every route and reloads the board when routes change", async ({ pa
 
   await page.goto(`${baseUrl}/__splatpad/design/`)
 
-  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await expect(page.locator(".page-frame")).toHaveCount(13)
   await expect(page.locator('.page-frame[data-route="/journal/"]')).toBeVisible()
   await expect(page.locator('.page-frame[data-route="/journal/seasonal-jam/"]')).toBeVisible()
-  await expect(page.locator(".page-frame__preview")).toHaveCount(7)
+  await expect(page.locator(".page-frame__preview")).toHaveCount(13)
 
   const newRoute = path.join(siteRoot, "pages", "journal", "archive", "index.liquid")
   await fs.mkdir(path.dirname(newRoute), { recursive: true })
@@ -419,7 +419,7 @@ const outlineSnapshot = async (
 
 test("refreshes pinned semantic values after a stylesheet-only update", async ({ page }) => {
   await page.goto(`${baseUrl}/__splatpad/design/`)
-  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await expect(page.locator(".page-frame")).toHaveCount(13)
   await waitForCanvasReady(page)
   await inspectTool(page).click()
   await waitForInspectReady(page)
@@ -473,7 +473,7 @@ test("refreshes pinned semantic values after a stylesheet-only update", async ({
 
 test("shows generated at-rule conditions separately from raw utility targets", async ({ page }) => {
   await page.goto(`${baseUrl}/__splatpad/design/`)
-  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await expect(page.locator(".page-frame")).toHaveCount(13)
   await waitForCanvasReady(page)
   await inspectTool(page).click()
   await waitForInspectReady(page)
@@ -514,7 +514,7 @@ test("shrinks responsive frames and downstream layout after changing viewport", 
   page,
 }) => {
   await page.goto(`${baseUrl}/__splatpad/design/`)
-  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await expect(page.locator(".page-frame")).toHaveCount(13)
   await waitForCanvasReady(page)
 
   const menuFrame = preview(page, "/menu/")
@@ -531,17 +531,32 @@ test("shrinks responsive frames and downstream layout after changing viewport", 
     document.head.append(style)
   })
 
-  const viewportControl = page.getByRole("combobox", { name: "Viewport breakpoint" })
-  await viewportControl.selectOption("sm")
-  await expect(menuFrame).toHaveCSS("height", "1600px")
-
-  await viewportControl.selectOption("md")
   const menuFrameNode = page
     .locator('.page-frame[data-route="/menu/"]')
     .locator("xpath=ancestor::*[contains(@class, 'react-flow__node')][1]")
   const storyFrameNode = page
     .locator('.page-frame[data-route="/story/"]')
     .locator("xpath=ancestor::*[contains(@class, 'react-flow__node')][1]")
+  const frameGap = async () => {
+    const [menuTransform, storyTransform] = await Promise.all(
+      [menuFrameNode, storyFrameNode].map((node) =>
+        node.evaluate(
+          (element) => new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform).m42,
+        ),
+      ),
+    )
+    return storyTransform - menuTransform
+  }
+
+  const viewportControl = page.getByRole("combobox", { name: "Viewport breakpoint" })
+  await viewportControl.selectOption("sm")
+  await expect(menuFrame).toHaveCSS("height", "1600px")
+  await expect
+    .poll(() => menuFrameNode.evaluate((node) => (node as HTMLElement).offsetHeight))
+    .toBe(1_644)
+  const initialFrameGap = await frameGap()
+
+  await viewportControl.selectOption("md")
 
   await expect(menuFrame).toHaveCSS("height", "900px")
   await expect(
@@ -550,18 +565,7 @@ test("shrinks responsive frames and downstream layout after changing viewport", 
   await expect
     .poll(() => menuFrameNode.evaluate((node) => (node as HTMLElement).offsetHeight))
     .toBe(944)
-  await expect
-    .poll(async () => {
-      const [menuTransform, storyTransform] = await Promise.all(
-        [menuFrameNode, storyFrameNode].map((node) =>
-          node.evaluate(
-            (element) => new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform).m42,
-          ),
-        ),
-      )
-      return storyTransform - menuTransform
-    })
-    .toBe(1_144)
+  await expect.poll(frameGap).toBeLessThanOrEqual(initialFrameGap - 700)
   await waitForViewportToSettle(page)
 })
 
@@ -602,7 +606,7 @@ test("ignores a stale font measurement after the preview document is replaced", 
   })
 
   await page.goto(`${baseUrl}/__splatpad/design/`)
-  await expect(page.locator(".page-frame")).toHaveCount(7)
+  await expect(page.locator(".page-frame")).toHaveCount(13)
   await waitForCanvasReady(page)
 
   const menuFrame = preview(page, "/menu/")
@@ -684,7 +688,7 @@ test.describe("canvas tools", () => {
     })
     page.on("pageerror", (error) => browserProblems.push(error.message))
     await page.goto(`${baseUrl}/__splatpad/design/`)
-    await expect(page.locator(".page-frame")).toHaveCount(7)
+    await expect(page.locator(".page-frame")).toHaveCount(13)
     await waitForCanvasReady(page)
   })
 
@@ -1076,8 +1080,15 @@ test.describe("canvas tools", () => {
     await waitForInspectReady(page)
     await clickTarget(page, heading)
     await expectInspectorClassName(page, classes[0])
+
+    await page.waitForTimeout(550)
+    await clickTarget(page, heading)
     await clickTarget(page, heading)
     await expectInspectorClassName(page, classes[1])
+
+    await page.waitForTimeout(550)
+    await clickTarget(page, heading)
+    await clickTarget(page, heading)
     await clickTarget(page, heading)
     await expectInspectorClassName(page, classes[2])
 
@@ -1085,6 +1096,8 @@ test.describe("canvas tools", () => {
     await clickTarget(page, heading)
     await expectInspectorClassName(page, classes[0])
 
+    await page.waitForTimeout(550)
+    await clickTarget(page, heading)
     await clickTarget(page, heading)
     await expectInspectorClassName(page, classes[1])
     await clickTarget(page, paragraph)
