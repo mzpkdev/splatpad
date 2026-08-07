@@ -459,22 +459,11 @@ test("refreshes pinned semantic values after a stylesheet-only update", async ({
 
   await expect(padding.locator("div", { hasText: /^Right4$/ })).toBeVisible()
   await expect(padding.locator("div", { hasText: /^Left4$/ })).toHaveCount(0)
-  await expect
-    .poll(async () => {
-      const swatchPaint = await swatch.evaluate(
-        (element) => globalThis.getComputedStyle(element).backgroundColor,
-      )
-      const targetPaint = await frame.evaluate((iframe) => {
-        const target = (iframe as HTMLIFrameElement).contentDocument?.querySelector(
-          "#stylesheet-refresh-target",
-        )
-        return target === null || target === undefined
-          ? ""
-          : globalThis.getComputedStyle(target).color
-      })
-      return swatchPaint === targetPaint && swatchPaint !== initialPaint
-    })
-    .toBe(true)
+  await expect(swatch).toHaveCSS("background-color", "rgb(170, 85, 34)")
+  await expect(swatch).not.toHaveCSS("background-color", initialPaint)
+  await expect(
+    page.frameLocator('iframe[title="/menu/"]').locator("#stylesheet-refresh-target"),
+  ).toHaveCSS("color", "rgb(170, 85, 34)")
 })
 
 test("shows generated at-rule conditions separately from raw utility targets", async ({ page }) => {
@@ -853,21 +842,25 @@ test.describe("canvas tools", () => {
   }) => {
     await page.keyboard.press("i")
     const before = await viewportPosition(page)
-    const center = await centerOf(preview(page, "/menu/"))
+    const interactionSurface = page.locator(
+      '.page-frame[data-route="/menu/"] .page-frame__interaction-surface',
+    )
 
     await page.keyboard.down("Space")
-    await dragFrom(page, center, { x: 72, y: 48 })
+    await expect(interactionSurface).toHaveCSS("pointer-events", "none")
+    const panPoint = await visiblePreviewPoint(page, "pan")
+    await dragFrom(page, panPoint, { x: 72, y: 48 })
     await page.keyboard.up("Space")
 
     await expect.poll(() => viewportPosition(page)).toEqual({ x: before.x + 72, y: before.y + 48 })
     await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
 
     await page.keyboard.down("Space")
+    await expect(interactionSurface).toHaveCSS("pointer-events", "none")
     await page.evaluate(() => globalThis.dispatchEvent(new Event("blur")))
-    await clickTarget(
-      page,
-      page.frameLocator('iframe[title="/menu/"]').getByRole("heading", { level: 1 }),
-    )
+    await expect(interactionSurface).toHaveCSS("pointer-events", "auto")
+    const headingPoint = await exposedPointOf(page, "/menu/", "h1")
+    await page.mouse.click(headingPoint.x, headingPoint.y)
     await expect(inspector(page)).toBeVisible()
     await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
     await page.keyboard.up("Space")
