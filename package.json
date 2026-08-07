@@ -29,6 +29,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@unocss/core": "^66.7.5",
     "@unocss/preset-wind4": "^66.7.5",
     "@xyflow/react": "^12.11.2",
     "cmdore": "^0.4.1",

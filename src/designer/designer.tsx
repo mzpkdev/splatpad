@@ -4,6 +4,20 @@ import { Hand, MousePointer2 } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { frameHeaderHeight, frameWidth, initialFrameHeight, layoutDesignRoutes } from "./layout"
+import {
+  getWind4ViewportOptions,
+  inspectWind4ClassName,
+  resolveViewportSemanticCards,
+  resolveViewportSpacing,
+  spacingSides,
+} from "./wind4-inspector"
+import type {
+  SemanticCardSummary,
+  SpacingSummary,
+  UtilitySection,
+  ViewportCondition,
+  ViewportOption,
+} from "./wind4-inspector"
 
 interface RouteRecord {
   route: string
@@ -17,7 +31,10 @@ type DesignerTool = "inspect" | "pan"
 
 interface InspectedElement {
   className: string
+  direction: "ltr" | "rtl"
+  element: Element
   route: string
+  writingMode: string
 }
 
 interface PageNodeData extends Record<string, unknown> {
@@ -25,7 +42,7 @@ interface PageNodeData extends Record<string, unknown> {
   inspecting: boolean
   interactive: boolean
   onHeight: (route: string, height: number) => void
-  onInspect: (inspection: InspectedElement, select: () => void) => void
+  onInspect: (inspection: InspectedElement, select?: () => void) => void
   onInvalidate: (route: string) => void
   onPanEnd: () => void
   onPanMove: (position: { x: number; y: number }) => void
@@ -34,6 +51,7 @@ interface PageNodeData extends Record<string, unknown> {
   route: string
   selectedRoute: string | undefined
   selectionGeneration: number
+  viewportWidth: number
 }
 
 type PageNode = Node<PageNodeData, "page">
@@ -55,7 +73,16 @@ const documentHeight = (document: Document): number => {
 }
 
 const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
-  const { inspecting, onInspect, onInvalidate, onPanEnd, onPanMove, onPanStart, route } = data
+  const {
+    inspecting,
+    onInspect,
+    onInvalidate,
+    onPanEnd,
+    onPanMove,
+    onPanStart,
+    route,
+    viewportWidth,
+  } = data
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const interactionSurfaceRef = useRef<HTMLDivElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
@@ -74,8 +101,31 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   >(undefined)
   const updateOverlays = useRef<() => void>(() => undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
+  const disconnectSelectionRefresh = useRef<() => void>(() => undefined)
+
+  const inspectElement = useCallback(
+    (element: Element, select?: () => void): void => {
+      const document = frameRef.current?.contentDocument
+      if (document === null || document === undefined || !element.isConnected) {
+        return
+      }
+      const computedStyle = document.defaultView?.getComputedStyle(element)
+      onInspect(
+        {
+          className: element.getAttribute("class") ?? "",
+          direction: computedStyle?.direction === "rtl" ? "rtl" : "ltr",
+          element,
+          route,
+          writingMode: computedStyle?.writingMode ?? "horizontal-tb",
+        },
+        select,
+      )
+    },
+    [onInspect, route],
+  )
 
   const clearMarkers = useCallback((): void => {
+    disconnectSelectionRefresh.current()
     hoveredElement.current = undefined
     hitElement.current = undefined
     lastInspectionClick.current = undefined
@@ -85,6 +135,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   }, [])
 
   const clearSelection = useCallback((): void => {
+    disconnectSelectionRefresh.current()
     hitElement.current = undefined
     lastInspectionClick.current = undefined
     selectedElement.current = undefined
@@ -133,6 +184,61 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         return
       }
 
+      const connectSelectionRefresh = (element: Element): void => {
+        disconnectSelectionRefresh.current()
+        const frameWindow = document.defaultView
+        if (frameWindow === null) {
+          return
+        }
+
+        let refreshFrame: number | undefined
+        const scheduleRefresh = (): void => {
+          if (refreshFrame !== undefined) {
+            return
+          }
+          refreshFrame = frameWindow.requestAnimationFrame(() => {
+            refreshFrame = undefined
+            if (element === selectedElement.current && element.isConnected) {
+              inspectElement(element)
+            }
+          })
+        }
+        const observer = new frameWindow.MutationObserver(scheduleRefresh)
+        for (
+          let current: Element | null = element;
+          current !== null;
+          current = current.parentElement
+        ) {
+          observer.observe(current, {
+            attributeFilter: ["class", "dir", "style"],
+            attributes: true,
+          })
+        }
+        if (document.head !== null) {
+          observer.observe(document.head, {
+            attributeFilter: ["disabled", "href", "media"],
+            attributes: true,
+            characterData: true,
+            childList: true,
+            subtree: true,
+          })
+        }
+        const onStylesheetLoad = (event: Event): void => {
+          if (event.target instanceof frameWindow.HTMLLinkElement) {
+            scheduleRefresh()
+          }
+        }
+        document.addEventListener("load", onStylesheetLoad, true)
+        disconnectSelectionRefresh.current = () => {
+          observer.disconnect()
+          document.removeEventListener("load", onStylesheetLoad, true)
+          if (refreshFrame !== undefined) {
+            frameWindow.cancelAnimationFrame(refreshFrame)
+          }
+          disconnectSelectionRefresh.current = () => undefined
+        }
+      }
+
       const overlayDocument = frame.ownerDocument
       const overlayWindow = overlayDocument.defaultView
       const hoverOverlay = overlayDocument.createElement("div")
@@ -174,11 +280,13 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         const frameLeft = frameBounds.left + frame.clientLeft * frameScaleX
         const frameTop = frameBounds.top + frame.clientTop * frameScaleY
         const bounds = element.getBoundingClientRect()
-        const viewportWidth = document.documentElement.clientWidth
+        const documentViewportWidth = document.documentElement.clientWidth
         const viewportHeight = document.documentElement.clientHeight
-        const left = frameLeft + Math.max(0, Math.min(viewportWidth, bounds.left)) * frameScaleX
+        const left =
+          frameLeft + Math.max(0, Math.min(documentViewportWidth, bounds.left)) * frameScaleX
         const top = frameTop + Math.max(0, Math.min(viewportHeight, bounds.top)) * frameScaleY
-        const right = frameLeft + Math.max(0, Math.min(viewportWidth, bounds.right)) * frameScaleX
+        const right =
+          frameLeft + Math.max(0, Math.min(documentViewportWidth, bounds.right)) * frameScaleX
         const bottom = frameTop + Math.max(0, Math.min(viewportHeight, bounds.bottom)) * frameScaleY
         if (right <= left || bottom <= top) {
           overlay.style.setProperty("display", "none", "important")
@@ -202,6 +310,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           hoveredElement.current = undefined
         }
         if (selectedElement.current !== undefined && !selectedElement.current.isConnected) {
+          disconnectSelectionRefresh.current()
           selectedElement.current = undefined
           hitElement.current = undefined
           lastInspectionClick.current = undefined
@@ -353,10 +462,11 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
             ? (currentSelection.parentElement ?? currentSelection)
             : candidate.element
 
-        onInspect({ className: nextSelection.getAttribute("class") ?? "", route }, () => {
+        inspectElement(nextSelection, () => {
           hitElement.current = candidate.element
           lastInspectionClick.current = event.timeStamp
           selectedElement.current = nextSelection
+          connectSelectionRefresh(nextSelection)
           updateOverlayPositions()
         })
       }
@@ -408,6 +518,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         interactionSurface.removeEventListener("contextmenu", blockAction)
         overlayWindow?.removeEventListener("blur", abortMiddlePan)
         overlayDocument.removeEventListener("visibilitychange", onVisibilityChange)
+        disconnectSelectionRefresh.current()
         if (overlayFrame !== undefined) {
           overlayWindow?.cancelAnimationFrame(overlayFrame)
         }
@@ -422,7 +533,16 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         disconnectInspector.current = () => undefined
       }
     },
-    [clearMarkers, inspecting, onInspect, onInvalidate, onPanEnd, onPanMove, onPanStart, route],
+    [
+      clearMarkers,
+      inspecting,
+      inspectElement,
+      onInvalidate,
+      onPanEnd,
+      onPanMove,
+      onPanStart,
+      route,
+    ],
   )
 
   useEffect(() => {
@@ -440,12 +560,30 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
   useEffect(() => {
     if (data.selectedRoute !== route) {
+      disconnectSelectionRefresh.current()
       selectedElement.current = undefined
       hitElement.current = undefined
       lastInspectionClick.current = undefined
       updateOverlays.current()
     }
   }, [data.selectedRoute, data.selectionGeneration, route])
+
+  useEffect(() => {
+    const frame = frameRef.current
+    if (frame !== null) {
+      measureFrame(frame)
+    }
+    const element = selectedElement.current
+    if (element === undefined) {
+      return
+    }
+    const refreshFrame = requestAnimationFrame(() => {
+      if (element === selectedElement.current && element.isConnected) {
+        inspectElement(element)
+      }
+    })
+    return () => cancelAnimationFrame(refreshFrame)
+  }, [inspectElement, measureFrame, viewportWidth])
 
   useEffect(
     () => () => {
@@ -460,6 +598,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     <article
       className={`page-frame${data.interactive ? " page-frame--interactive" : ""}`}
       data-route={data.route}
+      style={{ width: viewportWidth }}
     >
       <header className="page-frame__header">{data.route}</header>
       <iframe
@@ -472,7 +611,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         }}
         ref={frameRef}
         src={data.route}
-        style={{ height: data.contentHeight }}
+        style={{ height: data.contentHeight, width: viewportWidth }}
         tabIndex={-1}
         title={data.route}
       />
@@ -480,7 +619,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         aria-hidden="true"
         className="page-frame__interaction-surface"
         ref={interactionSurfaceRef}
-        style={{ height: data.contentHeight }}
+        style={{ height: data.contentHeight, width: viewportWidth }}
       />
     </article>
   )
@@ -488,6 +627,280 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 PageFrame.displayName = "PageFrame"
 
 const nodeTypes: NodeTypes = { page: PageFrame }
+
+const resolveColorVariables = (
+  value: string,
+  style: CSSStyleDeclaration,
+  seen = new Set<string>(),
+): string | undefined => {
+  let result = ""
+  let cursor = 0
+  let start = value.indexOf("var(")
+  while (start >= 0) {
+    result += value.slice(cursor, start)
+    let depth = 1
+    let end = start + 4
+    let comma = -1
+    for (; end < value.length && depth > 0; end += 1) {
+      if (value[end] === "(") {
+        depth += 1
+      } else if (value[end] === ")") {
+        depth -= 1
+      } else if (value[end] === "," && depth === 1 && comma < 0) {
+        comma = end
+      }
+    }
+    if (depth !== 0) {
+      return undefined
+    }
+    const close = end - 1
+    const name = value.slice(start + 4, comma < 0 ? close : comma).trim()
+    const fallback = comma < 0 ? "" : value.slice(comma + 1, close).trim()
+    const replacement = style.getPropertyValue(name).trim() || fallback
+    if (!name.startsWith("--") || replacement === "" || seen.has(name)) {
+      return undefined
+    }
+    const nested = resolveColorVariables(replacement, style, new Set([...seen, name]))
+    if (nested === undefined) {
+      return undefined
+    }
+    result += nested
+    cursor = end
+    start = value.indexOf("var(", cursor)
+  }
+  return result + value.slice(cursor)
+}
+
+const SpacingCard = ({ summary }: { summary: SpacingSummary }) => (
+  <article
+    className="designer-inspector__spacing-card"
+    data-active-source-tokens={summary.tokens.join(" ")}
+    data-source-tokens={summary.tokens.join(" ")}
+  >
+    <div className="designer-inspector__spacing-heading">
+      <h4>{summary.name}</h4>
+    </div>
+    <dl aria-label={`${summary.name} values`} className="designer-inspector__spacing-values">
+      {spacingSides.map((side) => (
+        <div key={side}>
+          <dt>{side}</dt>
+          <dd
+            data-source-tokens={summary.sides[side]?.tokens.join(" ")}
+            title={summary.sides[side]?.tokens.join(", ")}
+          >
+            {summary.sides[side]?.value ?? "—"}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  </article>
+)
+
+const SemanticCard = ({ element, summary }: { element: Element; summary: SemanticCardSummary }) => {
+  const computedStyle = element.ownerDocument.defaultView?.getComputedStyle(element)
+  const css = element.ownerDocument.defaultView?.CSS
+  const colorPaint = (value: SemanticCardSummary["values"][string]): string | undefined => {
+    if (value.colorProperty === undefined || computedStyle === undefined || css === undefined) {
+      return undefined
+    }
+    const resolved = resolveColorVariables(value.generatedValue ?? value.value, computedStyle)
+    if (resolved === undefined || !css.supports(value.colorProperty, resolved)) {
+      return undefined
+    }
+    const paint = computedStyle.getPropertyValue(value.colorProperty).trim()
+    return paint !== "" && css.supports("color", paint) ? paint : undefined
+  }
+  return (
+    <article
+      className="designer-inspector__spacing-card designer-inspector__semantic-card"
+      data-active-source-tokens={summary.tokens.join(" ")}
+      data-source-tokens={summary.tokens.join(" ")}
+    >
+      <div className="designer-inspector__spacing-heading">
+        <h4>{summary.name}</h4>
+      </div>
+      <dl aria-label={`${summary.name} values`} className="designer-inspector__semantic-values">
+        {Object.entries(summary.values).map(([field, value]) => {
+          const paint = colorPaint(value)
+          return (
+            <div key={field}>
+              <dt>{field}</dt>
+              <dd
+                data-source-tokens={value.tokens.join(" ")}
+                title={`${value.generatedValue ?? value.value} · ${value.tokens.join(", ")}`}
+              >
+                {paint === undefined ? null : (
+                  <span
+                    aria-hidden="true"
+                    className="designer-inspector__color-swatch"
+                    style={{ backgroundColor: paint }}
+                  />
+                )}
+                <span className="designer-inspector__semantic-value">{value.value}</span>
+              </dd>
+            </div>
+          )
+        })}
+      </dl>
+    </article>
+  )
+}
+
+const ElementInspector = ({
+  inspection,
+  viewport,
+  viewportOptions,
+}: {
+  inspection: InspectedElement
+  viewport: ViewportCondition
+  viewportOptions: ViewportOption[]
+}) => {
+  const [sections, setSections] = useState<UtilitySection[] | undefined>()
+  const [inspectionError, setInspectionError] = useState<string | undefined>()
+  useEffect(() => {
+    let current = true
+    setSections(undefined)
+    setInspectionError(undefined)
+    void inspectWind4ClassName(inspection.className, {
+      direction: inspection.direction,
+      viewport,
+      writingMode: inspection.writingMode,
+    })
+      .then((next) => {
+        if (current) {
+          setSections(next)
+        }
+      })
+      .catch((reason: unknown) => {
+        if (current) {
+          setInspectionError(reason instanceof Error ? reason.message : String(reason))
+        }
+      })
+    return () => {
+      current = false
+    }
+  }, [inspection, viewport])
+
+  return (
+    <aside
+      aria-busy={sections === undefined && inspectionError === undefined}
+      aria-label="Element inspector"
+      className="designer-inspector"
+    >
+      <header className="designer-inspector__header">
+        <h2>Properties</h2>
+      </header>
+      {inspectionError === undefined ? null : (
+        <p className="designer-inspector__message designer-inspector__message--error" role="alert">
+          {inspectionError}
+        </p>
+      )}
+      {sections === undefined && inspectionError === undefined ? (
+        <p aria-live="polite" className="designer-inspector__message" role="status">
+          Reading utilities...
+        </p>
+      ) : null}
+      {sections?.length === 0 ? (
+        <p className="designer-inspector__message">No utility classes</p>
+      ) : null}
+      {sections?.map((section) => (
+        <section className="designer-inspector__section" key={section.name}>
+          <h3>{section.name}</h3>
+          {section.semantic.length === 0 ? null : (
+            <div
+              className="designer-inspector__spacing"
+              data-source-tokens={[...new Set(section.semantic.map(({ token }) => token))].join(
+                " ",
+              )}
+            >
+              {resolveViewportSemanticCards(section.semantic, viewport, viewportOptions).map(
+                (summary) => (
+                  <SemanticCard element={inspection.element} key={summary.name} summary={summary} />
+                ),
+              )}
+            </div>
+          )}
+          {section.spacing.length === 0 ? null : (
+            <div
+              className="designer-inspector__spacing"
+              data-source-tokens={[
+                ...new Set(section.spacing.flatMap(({ tokens }) => tokens)),
+              ].join(" ")}
+            >
+              {(["Padding", "Margin"] as const).map((name) => {
+                const summary = resolveViewportSpacing(
+                  section.spacing,
+                  name,
+                  viewport,
+                  viewportOptions,
+                )
+                return summary === undefined ? null : <SpacingCard key={name} summary={summary} />
+              })}
+            </div>
+          )}
+          <div className="designer-inspector__utilities">
+            {section.utilities.map((utility, index) => (
+              <article
+                className={`designer-inspector__utility${utility.known ? "" : " designer-inspector__utility--unknown"}`}
+                data-utility-token={utility.token}
+                key={`${utility.token}-${index}`}
+              >
+                <div className="designer-inspector__utility-heading">
+                  <code className="designer-inspector__token">{utility.token}</code>
+                  {utility.known ? null : (
+                    <span className="designer-inspector__unknown">Unknown</span>
+                  )}
+                </div>
+                {utility.conditions.length === 0 ? null : (
+                  <div aria-label="Conditions" className="designer-inspector__conditions">
+                    {utility.conditions.map((condition) => (
+                      <code key={condition}>{condition}</code>
+                    ))}
+                  </div>
+                )}
+                {utility.rules.map((rule, ruleIndex) => (
+                  <div className="designer-inspector__rule" key={`${rule.selector}-${ruleIndex}`}>
+                    <div className="designer-inspector__target">
+                      <span>Target</span>
+                      {[
+                        ...rule.parents.filter((parent) => !parent.startsWith("@")),
+                        rule.selector,
+                      ].map((selector) => (
+                        <code key={selector} title={selector}>
+                          {selector}
+                        </code>
+                      ))}
+                    </div>
+                    {rule.parents.filter((parent) => parent.startsWith("@")).length === 0 ? null : (
+                      <div
+                        aria-label="Generated conditions"
+                        className="designer-inspector__conditions"
+                      >
+                        {rule.parents
+                          .filter((parent) => parent.startsWith("@"))
+                          .map((condition) => (
+                            <code key={condition}>{condition}</code>
+                          ))}
+                      </div>
+                    )}
+                    <dl className="designer-inspector__declarations">
+                      {rule.declarations.map((declaration, declarationIndex) => (
+                        <div key={`${declaration.property}-${declarationIndex}`}>
+                          <dt>{declaration.property}</dt>
+                          <dd title={declaration.value}>{declaration.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+    </aside>
+  )
+}
 
 const Designer = () => {
   const [routes, setRoutes] = useState<RouteRecord[]>([])
@@ -497,6 +910,8 @@ const Designer = () => {
   const [spacePanning, setSpacePanning] = useState(false)
   const [inspection, setInspection] = useState<InspectedElement | undefined>(undefined)
   const [selectionGeneration, setSelectionGeneration] = useState(0)
+  const [viewportOptions, setViewportOptions] = useState<ViewportOption[]>([])
+  const [viewport, setViewport] = useState<ViewportCondition>("Default")
   const flow = useRef<ReactFlowInstance<PageNode> | undefined>(undefined)
   const iframePan = useRef<
     | {
@@ -507,6 +922,19 @@ const Designer = () => {
   >(undefined)
   const fittedRoutes = useRef("")
   const selectionClears = useRef(new Map<string, () => void>())
+  const viewportOption = viewportOptions.find(({ condition }) => condition === viewport)
+
+  useEffect(() => {
+    let current = true
+    void getWind4ViewportOptions().then((options) => {
+      if (current) {
+        setViewportOptions(options)
+      }
+    })
+    return () => {
+      current = false
+    }
+  }, [])
 
   useEffect(() => {
     let stopped = false
@@ -566,9 +994,11 @@ const Designer = () => {
   }, [clearAllFrameSelections])
 
   const inspectElement = useCallback(
-    (nextInspection: InspectedElement, select: () => void): void => {
-      clearAllFrameSelections()
-      select()
+    (nextInspection: InspectedElement, select?: () => void): void => {
+      if (select !== undefined) {
+        clearAllFrameSelections()
+        select()
+      }
       setInspection(nextInspection)
       setSelectionGeneration((current) => current + 1)
     },
@@ -695,6 +1125,9 @@ const Designer = () => {
   }, [clearSelectedElement, inspection, routes])
 
   const nodes = useMemo<PageNode[]>(() => {
+    if (viewportOption === undefined) {
+      return []
+    }
     const positioned = layoutDesignRoutes(
       routes.map(({ route }) => ({
         route,
@@ -702,10 +1135,10 @@ const Designer = () => {
       })),
     )
 
+    const horizontalScale = (viewportOption.width + 120) / (frameWidth + 120)
     return positioned.map(({ route, height, position }) => ({
       id: route,
       type: "page",
-      position,
       data: {
         contentHeight: height,
         inspecting: tool === "inspect",
@@ -720,11 +1153,13 @@ const Designer = () => {
         route,
         selectedRoute: inspection?.route,
         selectionGeneration,
+        viewportWidth: viewportOption.width,
       },
       draggable: false,
       height: height + frameHeaderHeight,
       selectable: false,
-      width: frameWidth,
+      width: viewportOption.width,
+      position: { x: position.x * horizontalScale, y: position.y },
     }))
   }, [
     endViewportPan,
@@ -740,10 +1175,11 @@ const Designer = () => {
     spacePanning,
     startViewportPan,
     tool,
+    viewportOption,
   ])
 
   useEffect(() => {
-    const routeKey = routes.map(({ route }) => route).join("\n")
+    const routeKey = `${viewport}\n${routes.map(({ route }) => route).join("\n")}`
     const allFramesMeasured = routes.every(({ route }) => heights[route] !== undefined)
 
     if (!allFramesMeasured || fittedRoutes.current === routeKey) {
@@ -752,13 +1188,16 @@ const Designer = () => {
 
     fittedRoutes.current = routeKey
     void flow.current?.fitView({ duration: 200, padding: 0.08 })
-  }, [heights, nodes, routes])
+  }, [heights, nodes, routes, viewport])
 
   if (error !== undefined) {
     return <main className="designer-state designer-state--error">{error}</main>
   }
   if (routes.length === 0) {
     return <main className="designer-state">Loading site routes...</main>
+  }
+  if (viewportOption === undefined) {
+    return <main className="designer-state">Reading viewport breakpoints...</main>
   }
 
   return (
@@ -789,6 +1228,21 @@ const Designer = () => {
         <Background color="#d0d0d0" gap={24} size={1} variant={BackgroundVariant.Dots} />
         <Controls position="bottom-right" showInteractive={false} />
       </ReactFlow>
+      <label className="designer-viewport-control">
+        <span>Viewport</span>
+        <select
+          aria-label="Viewport breakpoint"
+          onChange={(event) => setViewport(event.target.value)}
+          value={viewport}
+        >
+          {viewportOptions.map((option) => (
+            <option key={option.condition} value={option.condition}>
+              {option.label}
+              {option.threshold === "" ? "" : ` — ${option.threshold}`}
+            </option>
+          ))}
+        </select>
+      </label>
       <nav aria-label="Canvas tools" className="designer-toolbar">
         <button
           aria-label="Pan tool (V)"
@@ -812,9 +1266,11 @@ const Designer = () => {
         </button>
       </nav>
       {inspection === undefined ? null : (
-        <aside aria-label="Element inspector" className="designer-inspector">
-          <code>{inspection.className}</code>
-        </aside>
+        <ElementInspector
+          inspection={inspection}
+          viewport={viewport}
+          viewportOptions={viewportOptions}
+        />
       )}
     </main>
   )
