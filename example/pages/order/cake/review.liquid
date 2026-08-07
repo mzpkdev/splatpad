@@ -1,0 +1,27 @@
+{% layout 'base' %}
+
+{% block content %}
+  <main class="mx-auto max-w-5xl px-5 py-12 sm:px-8 sm:py-16">
+    {% render 'order-progress', order_steps: order_steps, page: page %}
+    <section class="mt-12 grid gap-10 lg:grid-cols-[1fr_0.85fr]">
+      <div>
+        <p class="text-sm font-bold uppercase tracking-[0.18em] text-[#b14f31]">Step 5 of 5 · Review</p>
+        <h1 class="mt-3 text-5xl font-bold tracking-[-0.04em] sm:text-6xl">{{ page.title }}</h1>
+        <p class="mt-5 text-lg leading-8 text-[#62584f]">{{ page.description }}</p>
+        <dl class="mt-9 divide-y divide-[#302b27]/10 border-y border-[#302b27]/10">
+          <div class="flex justify-between gap-5 py-5"><dt class="text-[#74685e]">Size</dt><dd class="font-bold">Full table · 16 servings</dd></div>
+          <div class="flex justify-between gap-5 py-5"><dt class="text-[#74685e]">Flavor</dt><dd class="font-bold">Vanilla & strawberry</dd></div>
+          <div class="flex justify-between gap-5 py-5"><dt class="text-[#74685e]">Finish</dt><dd class="font-bold">Garden flowers</dd></div>
+          <div class="flex justify-between gap-5 py-5"><dt class="text-[#74685e]">Pickup</dt><dd class="font-bold">Friday 19 · 9:00–11:00</dd></div>
+        </dl>
+      </div>
+      <aside class="self-start rounded-[2rem] bg-[#f4e6d2] p-7">
+        <p class="text-sm font-bold uppercase tracking-[0.16em] text-[#74685e]">Order total</p>
+        <p class="mt-3 text-5xl font-bold">$72</p>
+        <p class="mt-4 leading-7 text-[#62584f]">You won’t be charged until the bakehouse confirms your pickup.</p>
+        <button class="mt-7 w-full rounded-full bg-[#bd4828] px-6 py-4 font-bold text-white" type="button">Send to the bakehouse</button>
+        <a class="mt-4 block text-center text-sm font-bold text-[#62584f] underline" href="/order/cake/">Start over</a>
+      </aside>
+    </section>
+  </main>
+{% endblock %}

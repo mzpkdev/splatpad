@@ -11,6 +11,7 @@
     { "label": "Menu", "href": "/menu/" },
     { "label": "Story", "href": "/story/" },
     { "label": "Journal", "href": "/journal/" },
+    { "label": "Order", "href": "/order/" },
     { "label": "Visit", "href": "/visit/" }
   ],
   "pages": {
@@ -40,11 +41,47 @@
       "title": "The jam jar follows the weather",
       "description": "Our pastry case changes when the orchards do. Here’s how a crate of ripe fruit becomes the week’s brightest bake."
     },
+    "/order/": {
+      "title": "A cake worth gathering around",
+      "description": "Build a celebration cake in five small steps, then pick it up fresh from our Alder Street bakehouse."
+    },
+    "/order/cake/": {
+      "title": "How many forks?",
+      "description": "Start with the size of your table. We’ll make sure there’s enough cake for everyone.",
+      "wizard_step": 1
+    },
+    "/order/cake/flavor/": {
+      "title": "Choose your flavors",
+      "description": "Pick a cake and filling. Every combination gets vanilla bean buttercream and a little seasonal flourish.",
+      "wizard_step": 2
+    },
+    "/order/cake/finish/": {
+      "title": "Make it yours",
+      "description": "Choose the finishing touches that make the cake feel like it belongs at your table.",
+      "wizard_step": 3
+    },
+    "/order/cake/pickup/": {
+      "title": "When should it be ready?",
+      "description": "We bake celebration cakes Thursday through Sunday and ask for three days’ notice.",
+      "wizard_step": 4
+    },
+    "/order/cake/review/": {
+      "title": "Everything look delicious?",
+      "description": "Review the cake we’ve built together before sending the order to the bakehouse.",
+      "wizard_step": 5
+    },
     "/visit/": {
       "title": "Come by for something warm",
       "description": "We’re a five-minute stroll from Alder Park. There’s a sunny window seat, a water bowl for dogs, and usually a loaf with your name on it."
     }
   },
+  "order_steps": [
+    { "label": "Size", "href": "/order/cake/" },
+    { "label": "Flavor", "href": "/order/cake/flavor/" },
+    { "label": "Finish", "href": "/order/cake/finish/" },
+    { "label": "Pickup", "href": "/order/cake/pickup/" },
+    { "label": "Review", "href": "/order/cake/review/" }
+  ],
   "journal_entries": [
     {
       "title": "Why good bread takes the long way",
