@@ -828,11 +828,11 @@ describe("Wind4 utility inspector", () => {
   })
 
   it.each([
-    ["sm", "Sm screens and up", "≥640px"],
-    ["md", "Md screens and up", "≥768px"],
-    ["lg", "Lg screens and up", "≥1024px"],
-    ["xl", "Xl screens and up", "≥1280px"],
-    ["2xl", "2xl screens and up", "≥1536px"],
+    ["sm", "SM screens and up", "≥640px"],
+    ["md", "MD screens and up", "≥768px"],
+    ["lg", "LG screens and up", "≥1024px"],
+    ["xl", "XL screens and up", "≥1280px"],
+    ["2xl", "2XL screens and up", "≥1536px"],
   ])("describes the %s breakpoint", (condition, label, detail) => {
     expect(describeSpacingCondition([condition], wind4Viewports)).toEqual({ detail, label })
   })
@@ -841,7 +841,7 @@ describe("Wind4 utility inspector", () => {
     expect(describeSpacingCondition([], wind4Viewports)).toEqual({ label: "Default" })
     expect(describeSpacingCondition(["hover", "sm"], wind4Viewports)).toEqual({
       detail: "≥640px",
-      label: "Sm screens and up · Hover",
+      label: "SM screens and up · Hover",
     })
     expect(describeSpacingCondition(["supports-[display:grid]"], wind4Viewports)).toEqual({
       label: "supports-[display:grid]",
@@ -1241,11 +1241,11 @@ describe("Wind4 utility inspector", () => {
       }),
     ).toEqual([
       { condition: "Default", label: "Default", threshold: "<420px", width: 419 },
-      { condition: "phone", label: "Phone screens and up", threshold: "≥420px", width: 420 },
-      { condition: "tablet", label: "Tablet screens and up", threshold: "≥832px", width: 832 },
+      { condition: "phone", label: "PHONE screens and up", threshold: "≥420px", width: 420 },
+      { condition: "tablet", label: "TABLET screens and up", threshold: "≥832px", width: 832 },
       {
         condition: "desktop",
-        label: "Desktop screens and up",
+        label: "DESKTOP screens and up",
         threshold: "≥1200px",
         width: 1_200,
       },

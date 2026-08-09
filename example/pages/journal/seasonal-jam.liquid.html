@@ -1,7 +1,7 @@
 {% layout 'base' %} {% block content %}
 <main>
   <article>
-    <header class="mx-auto max-w-4xl px-5 py-16 sm:px-8 sm:py-24">
+    <header class="mx-auto max-w-4xl px-5 py-16 sm:px-8 sm:py-24" data-frame="Article header">
       <a class="text-sm font-bold text-[#b14f31]" href="/journal/">← Bakehouse journal</a>
       <p class="mt-10 text-sm font-bold uppercase tracking-[0.18em] text-[#74685e]">
         Fruit · 3 minute read
@@ -12,13 +12,16 @@
       <p class="mt-7 text-xl leading-9 text-[#62584f]">{{ page.description }}</p>
     </header>
 
-    <div class="bg-[#bd4828] text-white">
+    <div class="bg-[#bd4828] text-white" data-frame="Article pull quote">
       <div class="mx-auto max-w-3xl px-5 py-14 text-xl font-bold leading-9 sm:px-8">
         We don’t ask the fruit to fit the menu. We let the menu move with the fruit.
       </div>
     </div>
 
-    <div class="mx-auto max-w-3xl space-y-6 px-5 py-16 text-lg leading-8 text-[#62584f] sm:px-8">
+    <div
+      class="mx-auto max-w-3xl space-y-6 px-5 py-16 text-lg leading-8 text-[#62584f] sm:px-8"
+      data-frame="Article body"
+    >
       <p>
         Our jam starts at the Saturday market. If the strawberries smell like June from three stalls
         away, they become clouds and thumbprint cookies. When apricots arrive, the morning buns get

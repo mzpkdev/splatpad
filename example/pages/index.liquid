@@ -2,8 +2,8 @@
 
 {% block content %}
   <main>
-    <section class="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.1fr_0.9fr]">
-      <div>
+    <section class="mx-auto grid max-w-6xl items-center gap-12 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.1fr_0.9fr]" data-frame="Home hero">
+      <div data-frame="Hero introduction">
       <p class="mb-5 text-sm font-bold uppercase tracking-[0.18em] text-[#b14f31]">
         {{ page.eyebrow }}
       </p>
@@ -23,14 +23,14 @@
         <a class="inline-flex rounded-full border border-[#302b27]/20 px-6 py-3 font-bold" href="/visit/">Plan a visit</a>
       </div>
       </div>
-      <div class="relative mx-auto aspect-square w-full max-w-md rounded-[3rem] bg-[#dbe5cb] p-8 sm:p-12" role="img" aria-label="A fresh loaf of bread with a baked-this-morning label">
+      <div class="relative mx-auto aspect-square w-full max-w-md rounded-[3rem] bg-[#dbe5cb] p-8 sm:p-12" role="img" aria-label="A fresh loaf of bread with a baked-this-morning label" data-frame="Fresh loaf illustration">
         <div class="absolute left-8 top-9 size-16 rounded-full bg-[#f4c95d]"></div>
         <div class="grid h-full place-items-center rounded-[45%_55%_48%_52%] bg-[#e9a55f] text-8xl shadow-[inset_-18px_-20px_0_rgba(177,79,49,0.12)]" aria-hidden="true">☁</div>
         <span class="absolute bottom-9 right-7 rotate-6 rounded-full bg-white px-4 py-2 text-sm font-bold shadow-sm">Baked this morning</span>
       </div>
     </section>
 
-    <section class="bg-[#f4e6d2]">
+    <section class="bg-[#f4e6d2]" data-frame="Featured menu">
       <div class="mx-auto max-w-6xl px-5 py-16 sm:px-8">
         <div class="mb-9 flex flex-wrap items-end justify-between gap-4">
           <div>

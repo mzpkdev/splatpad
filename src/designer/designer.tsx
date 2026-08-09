@@ -1,6 +1,6 @@
 import { Background, BackgroundVariant, Controls, ReactFlow } from "@xyflow/react"
 import type { Node, NodeProps, NodeTypes, ReactFlowInstance } from "@xyflow/react"
-import { Hand, MousePointer2 } from "lucide-react"
+import { Box, ChevronRight, File, Hand, Image, MousePointer2, Type } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { frameHeaderHeight, frameWidth, initialFrameHeight, layoutDesignRoutes } from "./layout"
@@ -25,6 +25,7 @@ interface RouteRecord {
 
 interface RouteResponse {
   routes: RouteRecord[]
+  siteName: string
 }
 
 type DesignerTool = "inspect" | "pan"
@@ -37,6 +38,16 @@ interface InspectedElement {
   writingMode: string
 }
 
+type OutlineKind = "frame" | "svg" | "text"
+
+interface OutlineItem {
+  depth: number
+  element: Element
+  id: string
+  kind: OutlineKind
+  label: string
+}
+
 interface PageNodeData extends Record<string, unknown> {
   contentHeight: number
   inspecting: boolean
@@ -44,10 +55,12 @@ interface PageNodeData extends Record<string, unknown> {
   onHeight: (route: string, height: number) => void
   onInspect: (inspection: InspectedElement, select?: () => void) => void
   onInvalidate: (route: string) => void
+  onOutline: (route: string, items: OutlineItem[]) => void
   onPanEnd: () => void
   onPanMove: (position: { x: number; y: number }) => void
   onPanStart: (position: { x: number; y: number }) => void
   onRegisterSelectionClear: (route: string, clear: (() => void) | undefined) => void
+  onRegisterOutlineSelect: (route: string, select: ((element: Element) => void) | undefined) => void
   route: string
   selectedRoute: string | undefined
   selectionGeneration: number
@@ -77,9 +90,11 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     inspecting,
     onInspect,
     onInvalidate,
+    onOutline,
     onPanEnd,
     onPanMove,
     onPanStart,
+    onRegisterOutlineSelect,
     route,
     viewportWidth,
   } = data
@@ -103,11 +118,20 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const updateOverlays = useRef<() => void>(() => undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
   const disconnectSelectionRefresh = useRef<() => void>(() => undefined)
+  const disconnectOutline = useRef<() => void>(() => undefined)
+  const connectSelectionRefresh = useRef<(element: Element) => void>(() => undefined)
+  const outlineIds = useRef(new WeakMap<Element, string>())
+  const nextOutlineId = useRef(0)
 
   const inspectElement = useCallback(
     (element: Element, select?: () => void): void => {
       const document = frameRef.current?.contentDocument
-      if (document === null || document === undefined || !element.isConnected) {
+      if (
+        document === null ||
+        document === undefined ||
+        element.ownerDocument !== document ||
+        !element.isConnected
+      ) {
         return
       }
       const computedStyle = document.defaultView?.getComputedStyle(element)
@@ -123,6 +147,121 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       )
     },
     [onInspect, route],
+  )
+
+  const selectOutlineElement = useCallback(
+    (element: Element): void => {
+      if (!element.isConnected) {
+        return
+      }
+      inspectElement(element, () => {
+        hitElement.current = element
+        lastInspectionClick.current = undefined
+        selectedElement.current = element
+        connectSelectionRefresh.current(element)
+        updateOverlays.current()
+      })
+    },
+    [inspectElement],
+  )
+
+  const connectOutline = useCallback(
+    (frame: HTMLIFrameElement): void => {
+      disconnectOutline.current()
+      const document = frame.contentDocument
+      const frameWindow = document?.defaultView
+      if (
+        document === null ||
+        document === undefined ||
+        frameWindow === null ||
+        frameWindow === undefined
+      ) {
+        onOutline(route, [])
+        return
+      }
+
+      let outlineFrame: number | undefined
+      const readDirectText = (element: Element): string =>
+        [...element.childNodes]
+          .filter((node) => node.nodeType === 3)
+          .map((node) => node.textContent ?? "")
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+      const describe = (element: Element): Omit<OutlineItem, "depth" | "id"> | undefined => {
+        const frameLabel = element.getAttribute("data-frame")?.trim()
+        if (frameLabel !== undefined && frameLabel !== "") {
+          return { element, kind: "frame", label: frameLabel }
+        }
+        if (element.localName.toLowerCase() === "svg") {
+          const label =
+            element.getAttribute("aria-label")?.trim() ||
+            [...element.children]
+              .find((child) => child.localName.toLowerCase() === "title")
+              ?.textContent?.replace(/\s+/g, " ")
+              .trim() ||
+            element.id.trim() ||
+            "SVG"
+          return { element, kind: "svg", label }
+        }
+        if (element.namespaceURI !== "http://www.w3.org/1999/xhtml") {
+          return undefined
+        }
+        const label = readDirectText(element)
+        return label === "" ? undefined : { element, kind: "text", label }
+      }
+      const refreshOutline = (): void => {
+        outlineFrame = undefined
+        const elements =
+          document.body === null ? [] : [document.body, ...document.body.querySelectorAll("*")]
+        const described = elements
+          .map(describe)
+          .filter((item): item is Omit<OutlineItem, "depth" | "id"> => item !== undefined)
+        const qualifying = new Set(described.map(({ element }) => element))
+        const items = described.map(({ element, kind, label }) => {
+          let depth = 0
+          for (
+            let ancestor = element.parentElement;
+            ancestor !== null;
+            ancestor = ancestor.parentElement
+          ) {
+            if (qualifying.has(ancestor)) {
+              depth += 1
+            }
+          }
+          let id = outlineIds.current.get(element)
+          if (id === undefined) {
+            id = `${route}:${nextOutlineId.current}`
+            nextOutlineId.current += 1
+            outlineIds.current.set(element, id)
+          }
+          return { depth, element, id, kind, label }
+        })
+        onOutline(route, items)
+      }
+      const scheduleOutline = (): void => {
+        if (outlineFrame === undefined) {
+          outlineFrame = frameWindow.requestAnimationFrame(refreshOutline)
+        }
+      }
+      const observer = new frameWindow.MutationObserver(scheduleOutline)
+      observer.observe(document.documentElement, {
+        attributeFilter: ["aria-label", "data-frame", "id"],
+        attributes: true,
+        characterData: true,
+        childList: true,
+        subtree: true,
+      })
+      refreshOutline()
+      disconnectOutline.current = () => {
+        observer.disconnect()
+        if (outlineFrame !== undefined) {
+          frameWindow.cancelAnimationFrame(outlineFrame)
+        }
+        disconnectOutline.current = () => undefined
+      }
+    },
+    [onOutline, route],
   )
 
   const clearMarkers = useCallback((): void => {
@@ -197,7 +336,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         return
       }
 
-      const connectSelectionRefresh = (element: Element): void => {
+      const watchSelection = (element: Element): void => {
         disconnectSelectionRefresh.current()
         const frameWindow = document.defaultView
         if (frameWindow === null) {
@@ -251,6 +390,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           disconnectSelectionRefresh.current = () => undefined
         }
       }
+      connectSelectionRefresh.current = watchSelection
 
       const overlayDocument = frame.ownerDocument
       const overlayWindow = overlayDocument.defaultView
@@ -479,7 +619,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           hitElement.current = candidate.element
           lastInspectionClick.current = event.timeStamp
           selectedElement.current = nextSelection
-          connectSelectionRefresh(nextSelection)
+          watchSelection(nextSelection)
           updateOverlayPositions()
         })
       }
@@ -543,6 +683,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         hoverOverlay.remove()
         selectedOverlay.remove()
         updateOverlays.current = () => undefined
+        connectSelectionRefresh.current = () => undefined
         disconnectInspector.current = () => undefined
       }
     },
@@ -562,6 +703,22 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     data.onRegisterSelectionClear(route, clearSelection)
     return () => data.onRegisterSelectionClear(route, undefined)
   }, [clearSelection, data, route])
+
+  useEffect(() => {
+    onRegisterOutlineSelect(route, selectOutlineElement)
+    return () => onRegisterOutlineSelect(route, undefined)
+  }, [onRegisterOutlineSelect, route, selectOutlineElement])
+
+  useEffect(() => {
+    const frame = frameRef.current
+    if (data.selectedRoute === route && frame !== null) {
+      connectOutline(frame)
+    } else {
+      disconnectOutline.current()
+      onOutline(route, [])
+    }
+    return () => disconnectOutline.current()
+  }, [connectOutline, data.selectedRoute, onOutline, route])
 
   useEffect(() => {
     const frame = frameRef.current
@@ -600,18 +757,20 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
   useEffect(
     () => () => {
+      disconnectOutline.current()
+      onOutline(route, [])
       measurementGeneration.current += 1
       if (measurementFrame.current !== undefined) {
         cancelAnimationFrame(measurementFrame.current)
         measurementFrame.current = undefined
       }
     },
-    [],
+    [onOutline, route],
   )
 
   return (
     <article
-      className={`page-frame${data.interactive ? " page-frame--interactive" : ""}`}
+      className={`page-frame${data.interactive ? " page-frame--interactive" : ""}${data.selectedRoute === route ? " page-frame--active" : ""}`}
       data-route={data.route}
       style={{ width: viewportWidth }}
     >
@@ -622,6 +781,9 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         onLoad={(event) => {
           measureFrame(event.currentTarget)
           data.onInvalidate(data.route)
+          if (data.selectedRoute === route) {
+            connectOutline(event.currentTarget)
+          }
           connectInspector(event.currentTarget)
         }}
         ref={frameRef}
@@ -711,7 +873,15 @@ const SpacingCard = ({ summary }: { summary: SpacingSummary }) => (
   </article>
 )
 
-const SemanticCard = ({ element, summary }: { element: Element; summary: SemanticCardSummary }) => {
+const SemanticCard = ({
+  element,
+  showHeading,
+  summary,
+}: {
+  element: Element
+  showHeading: boolean
+  summary: SemanticCardSummary
+}) => {
   const computedStyle = element.ownerDocument.defaultView?.getComputedStyle(element)
   const css = element.ownerDocument.defaultView?.CSS
   const colorPaint = (value: SemanticCardSummary["values"][string]): string | undefined => {
@@ -731,9 +901,11 @@ const SemanticCard = ({ element, summary }: { element: Element; summary: Semanti
       data-active-source-tokens={summary.tokens.join(" ")}
       data-source-tokens={summary.tokens.join(" ")}
     >
-      <div className="designer-inspector__spacing-heading">
-        <h4>{summary.name}</h4>
-      </div>
+      {showHeading ? (
+        <div className="designer-inspector__spacing-heading">
+          <h4>{summary.name}</h4>
+        </div>
+      ) : null}
       <dl aria-label={`${summary.name} values`} className="designer-inspector__semantic-values">
         {Object.entries(summary.values).map(([field, value]) => {
           const paint = colorPaint(value)
@@ -772,10 +944,17 @@ const ElementInspector = ({
 }) => {
   const [sections, setSections] = useState<UtilitySection[] | undefined>()
   const [inspectionError, setInspectionError] = useState<string | undefined>()
+  const [inspectionAttempt, setInspectionAttempt] = useState(0)
   useEffect(() => {
     let current = true
     setSections(undefined)
     setInspectionError(undefined)
+    const timeout = window.setTimeout(() => {
+      if (current) {
+        current = false
+        setInspectionError("Utility analysis timed out.")
+      }
+    }, 8_000)
     void inspectWind4ClassName(inspection.className, {
       direction: inspection.direction,
       viewport,
@@ -783,18 +962,27 @@ const ElementInspector = ({
     })
       .then((next) => {
         if (current) {
+          window.clearTimeout(timeout)
           setSections(next)
         }
       })
       .catch((reason: unknown) => {
         if (current) {
+          window.clearTimeout(timeout)
           setInspectionError(reason instanceof Error ? reason.message : String(reason))
         }
       })
     return () => {
       current = false
+      window.clearTimeout(timeout)
     }
-  }, [inspection, viewport])
+  }, [
+    inspection.className,
+    inspection.direction,
+    inspection.writingMode,
+    inspectionAttempt,
+    viewport,
+  ])
 
   return (
     <aside
@@ -803,12 +991,25 @@ const ElementInspector = ({
       className="designer-inspector"
     >
       <header className="designer-inspector__header">
-        <h2>Properties</h2>
+        <div className="designer-inspector__title-row">
+          <h2>Properties</h2>
+          <code>{inspection.route}</code>
+        </div>
+        <div className="designer-inspector__element">
+          <strong>{inspection.element.localName}</strong>
+          <span>{inspection.className.split(/\s+/).filter(Boolean).length} authored classes</span>
+        </div>
       </header>
       {inspectionError === undefined ? null : (
-        <p className="designer-inspector__message designer-inspector__message--error" role="alert">
-          {inspectionError}
-        </p>
+        <div
+          className="designer-inspector__message designer-inspector__message--error"
+          role="alert"
+        >
+          <p>{inspectionError}</p>
+          <button onClick={() => setInspectionAttempt((current) => current + 1)} type="button">
+            Retry
+          </button>
+        </div>
       )}
       {sections === undefined && inspectionError === undefined ? (
         <p aria-live="polite" className="designer-inspector__message" role="status">
@@ -818,112 +1019,141 @@ const ElementInspector = ({
       {sections?.length === 0 ? (
         <p className="designer-inspector__message">No utility classes</p>
       ) : null}
-      {sections?.map((section) => (
-        <section className="designer-inspector__section" key={section.name}>
-          <h3>{section.name}</h3>
-          {section.semantic.length === 0 ? null : (
-            <div
-              className="designer-inspector__spacing"
-              data-source-tokens={[...new Set(section.semantic.map(({ token }) => token))].join(
-                " ",
-              )}
-            >
-              {resolveViewportSemanticCards(section.semantic, viewport, viewportOptions).map(
-                (summary) => (
-                  <SemanticCard element={inspection.element} key={summary.name} summary={summary} />
-                ),
-              )}
-            </div>
-          )}
-          {section.spacing.length === 0 ? null : (
-            <div
-              className="designer-inspector__spacing"
-              data-source-tokens={[
-                ...new Set(section.spacing.flatMap(({ tokens }) => tokens)),
-              ].join(" ")}
-            >
-              {(["Padding", "Margin"] as const).map((name) => {
-                const summary = resolveViewportSpacing(
-                  section.spacing,
-                  name,
-                  viewport,
-                  viewportOptions,
-                )
-                return summary === undefined ? null : <SpacingCard key={name} summary={summary} />
-              })}
-            </div>
-          )}
-          <div className="designer-inspector__utilities">
-            {section.utilities.map((utility, index) => (
-              <article
-                className={`designer-inspector__utility${utility.known ? "" : " designer-inspector__utility--unknown"}`}
-                data-utility-token={utility.token}
-                key={`${utility.token}-${index}`}
-              >
-                <div className="designer-inspector__utility-heading">
-                  <code className="designer-inspector__token">{utility.token}</code>
-                  {utility.known ? null : (
-                    <span className="designer-inspector__unknown">Unknown</span>
-                  )}
-                </div>
-                {utility.conditions.length === 0 ? null : (
-                  <div aria-label="Conditions" className="designer-inspector__conditions">
-                    {utility.conditions.map((condition) => (
-                      <code key={condition}>{condition}</code>
-                    ))}
-                  </div>
+      {sections?.map((section) => {
+        const semanticCards = resolveViewportSemanticCards(
+          section.semantic,
+          viewport,
+          viewportOptions,
+        )
+        return (
+          <section className="designer-inspector__section" key={section.name}>
+            {semanticCards.length === 0 ? null : (
+              <div
+                className="designer-inspector__spacing"
+                data-source-tokens={[...new Set(section.semantic.map(({ token }) => token))].join(
+                  " ",
                 )}
-                {utility.rules.map((rule, ruleIndex) => (
-                  <div className="designer-inspector__rule" key={`${rule.selector}-${ruleIndex}`}>
-                    <div className="designer-inspector__target">
-                      <span>Target</span>
-                      {[
-                        ...rule.parents.filter((parent) => !parent.startsWith("@")),
-                        rule.selector,
-                      ].map((selector) => (
-                        <code key={selector} title={selector}>
-                          {selector}
-                        </code>
+              >
+                {semanticCards.map((summary) => (
+                  <SemanticCard
+                    element={inspection.element}
+                    key={summary.name}
+                    showHeading
+                    summary={summary}
+                  />
+                ))}
+              </div>
+            )}
+            {section.spacing.length === 0 ? null : (
+              <div
+                className="designer-inspector__spacing"
+                data-source-tokens={[
+                  ...new Set(section.spacing.flatMap(({ tokens }) => tokens)),
+                ].join(" ")}
+              >
+                {(["Padding", "Margin"] as const).map((name) => {
+                  const summary = resolveViewportSpacing(
+                    section.spacing,
+                    name,
+                    viewport,
+                    viewportOptions,
+                  )
+                  return summary === undefined ? null : <SpacingCard key={name} summary={summary} />
+                })}
+              </div>
+            )}
+            <div className="designer-inspector__utilities">
+              {section.utilities.map((utility, index) => (
+                <article
+                  className={`designer-inspector__utility${utility.known ? "" : " designer-inspector__utility--unknown"}`}
+                  data-utility-token={utility.token}
+                  key={`${utility.token}-${index}`}
+                >
+                  <div className="designer-inspector__utility-heading">
+                    <code className="designer-inspector__token">{utility.token}</code>
+                    {utility.known ? null : (
+                      <span className="designer-inspector__unknown">Unknown</span>
+                    )}
+                  </div>
+                  {utility.conditions.length === 0 ? null : (
+                    <div aria-label="Conditions" className="designer-inspector__conditions">
+                      {utility.conditions.map((condition) => (
+                        <code key={condition}>{condition}</code>
                       ))}
                     </div>
-                    {rule.parents.filter((parent) => parent.startsWith("@")).length === 0 ? null : (
-                      <div
-                        aria-label="Generated conditions"
-                        className="designer-inspector__conditions"
-                      >
-                        {rule.parents
-                          .filter((parent) => parent.startsWith("@"))
-                          .map((condition) => (
-                            <code key={condition}>{condition}</code>
-                          ))}
+                  )}
+                  {utility.rules.map((rule, ruleIndex) => (
+                    <div className="designer-inspector__rule" key={`${rule.selector}-${ruleIndex}`}>
+                      <div className="designer-inspector__target">
+                        <span>Target</span>
+                        {[
+                          ...rule.parents.filter((parent) => !parent.startsWith("@")),
+                          rule.selector,
+                        ].map((selector) => (
+                          <code key={selector} title={selector}>
+                            {selector}
+                          </code>
+                        ))}
                       </div>
-                    )}
-                    <dl className="designer-inspector__declarations">
-                      {rule.declarations.map((declaration, declarationIndex) => (
-                        <div key={`${declaration.property}-${declarationIndex}`}>
-                          <dt>{declaration.property}</dt>
-                          <dd title={declaration.value}>{declaration.value}</dd>
+                      {rule.parents.filter((parent) => parent.startsWith("@")).length ===
+                      0 ? null : (
+                        <div
+                          aria-label="Generated conditions"
+                          className="designer-inspector__conditions"
+                        >
+                          {rule.parents
+                            .filter((parent) => parent.startsWith("@"))
+                            .map((condition) => (
+                              <code key={condition}>{condition}</code>
+                            ))}
                         </div>
-                      ))}
-                    </dl>
-                  </div>
-                ))}
-              </article>
-            ))}
-          </div>
-        </section>
-      ))}
+                      )}
+                      <dl className="designer-inspector__declarations">
+                        {rule.declarations.map((declaration, declarationIndex) => (
+                          <div key={`${declaration.property}-${declarationIndex}`}>
+                            <dt>{declaration.property}</dt>
+                            <dd title={declaration.value}>{declaration.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  ))}
+                </article>
+              ))}
+            </div>
+          </section>
+        )
+      })}
     </aside>
   )
 }
 
+const SplatpadMark = () => (
+  <svg aria-hidden="true" className="designer-header__mark" viewBox="0 0 24 24">
+    <path
+      d="M5.4 3.5h8.8a3 3 0 0 1 2.9 3.8l-.3 1 2.6-1.5a1.1 1.1 0 0 1 1.5 1.5l-1.5 2.5 1.1.2a1.1 1.1 0 0 1 .2 2.1l-2.8 1.2 1.2 2a1.1 1.1 0 0 1-1.5 1.5l-1.4-.8v1.6a1.9 1.9 0 0 1-1.9 1.9H5.4a1.9 1.9 0 0 1-1.9-1.9V5.4a1.9 1.9 0 0 1 1.9-1.9Z"
+      fill="currentColor"
+    />
+    <path
+      d="M13.8 7.6c-1.3-1-4.4-.9-5.2.5-.8 1.5.6 2.4 2.8 2.8 2.5.5 3.7 1.5 3 3.2-.8 2-4.1 2.4-6.3.9"
+      fill="none"
+      stroke="#7c3aed"
+      strokeLinecap="round"
+      strokeWidth="2.3"
+    />
+  </svg>
+)
+
 const Designer = () => {
   const [routes, setRoutes] = useState<RouteRecord[]>([])
+  const [siteName, setSiteName] = useState("Splatpad")
+  const [activeRoute, setActiveRoute] = useState<string | undefined>()
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | undefined>(undefined)
   const [tool, setTool] = useState<DesignerTool>("pan")
   const [spacePanning, setSpacePanning] = useState(false)
   const [inspection, setInspection] = useState<InspectedElement | undefined>(undefined)
+  const [outlines, setOutlines] = useState<Record<string, OutlineItem[]>>({})
   const [selectionGeneration, setSelectionGeneration] = useState(0)
   const [viewportOptions, setViewportOptions] = useState<ViewportOption[]>([])
   const [viewport, setViewport] = useState<ViewportCondition>("Default")
@@ -937,6 +1167,8 @@ const Designer = () => {
   >(undefined)
   const fittedRoutes = useRef("")
   const selectionClears = useRef(new Map<string, () => void>())
+  const outlineSelectors = useRef(new Map<string, (element: Element) => void>())
+  const pendingOutlineSelection = useRef<{ element: Element; route: string } | undefined>(undefined)
   const viewportOption = viewportOptions.find(({ condition }) => condition === viewport)
 
   useEffect(() => {
@@ -963,6 +1195,7 @@ const Designer = () => {
         }
         const payload = (await response.json()) as RouteResponse
         if (!stopped) {
+          setSiteName(payload.siteName)
           setRoutes((current) =>
             current.map(({ route }) => route).join("\n") ===
             payload.routes.map(({ route }) => route).join("\n")
@@ -1019,6 +1252,7 @@ const Designer = () => {
         clearAllFrameSelections()
         select()
       }
+      setActiveRoute(nextInspection.route)
       setInspection(nextInspection)
       setSelectionGeneration((current) => current + 1)
     },
@@ -1031,6 +1265,21 @@ const Designer = () => {
         selectionClears.current.delete(route)
       } else {
         selectionClears.current.set(route, clear)
+      }
+    },
+    [],
+  )
+
+  const updateOutline = useCallback((route: string, items: OutlineItem[]): void => {
+    setOutlines((current) => ({ ...current, [route]: items }))
+  }, [])
+
+  const registerOutlineSelect = useCallback(
+    (route: string, select: ((element: Element) => void) | undefined): void => {
+      if (select === undefined) {
+        outlineSelectors.current.delete(route)
+      } else {
+        outlineSelectors.current.set(route, select)
       }
     },
     [],
@@ -1144,6 +1393,105 @@ const Designer = () => {
     }
   }, [clearSelectedElement, inspection, routes])
 
+  useEffect(() => {
+    if (activeRoute === undefined || !routes.some(({ route }) => route === activeRoute)) {
+      setActiveRoute(routes[0]?.route)
+    }
+  }, [activeRoute, routes])
+
+  const focusRoute = useCallback(
+    (route: string): void => {
+      clearSelectedElement()
+      setActiveRoute(route)
+      const instance = flow.current
+      const node = instance?.getNode(route)
+      const canvas = document.querySelector<HTMLElement>(".designer-canvas")
+      const width = node?.measured?.width ?? node?.width
+      const height = node?.measured?.height ?? node?.height
+      if (
+        instance !== undefined &&
+        node !== undefined &&
+        canvas !== null &&
+        width !== undefined &&
+        height !== undefined
+      ) {
+        const zoom = Math.min(
+          1,
+          Math.max(
+            0.18,
+            Math.min((canvas.clientWidth - 96) / width, (canvas.clientHeight - 96) / height),
+          ),
+        )
+        void instance.setCenter(node.position.x + width / 2, node.position.y + height / 2, {
+          duration: 250,
+          zoom,
+        })
+      }
+    },
+    [clearSelectedElement],
+  )
+
+  const focusOutlineElement = useCallback((route: string, element: Element): void => {
+    const instance = flow.current
+    const node = instance?.getNode(route)
+    const canvas = document.querySelector<HTMLElement>(".designer-canvas")
+    if (instance === undefined || node === undefined || canvas === null || !element.isConnected) {
+      return
+    }
+
+    const bounds = element.getBoundingClientRect()
+    const width = Math.max(1, bounds.width)
+    const height = Math.max(1, bounds.height)
+    const zoom = Math.min(
+      1.5,
+      Math.max(
+        0.18,
+        Math.min(
+          (canvas.clientWidth - 160) / Math.max(width, 160),
+          (canvas.clientHeight - 160) / Math.max(height, 100),
+        ),
+      ),
+    )
+    void instance.setCenter(
+      node.position.x + bounds.left + width / 2,
+      node.position.y + frameHeaderHeight + bounds.top + height / 2,
+      { duration: 250, zoom },
+    )
+  }, [])
+
+  const selectOutlineItem = useCallback(
+    (item: OutlineItem): void => {
+      const route = activeRoute
+      if (route === undefined || !item.element.isConnected) {
+        return
+      }
+      if (tool === "inspect") {
+        outlineSelectors.current.get(route)?.(item.element)
+        return
+      }
+      pendingOutlineSelection.current = { element: item.element, route }
+      setTool("inspect")
+      setSpacePanning(false)
+    },
+    [activeRoute, tool],
+  )
+
+  useEffect(() => {
+    const pending = pendingOutlineSelection.current
+    if (tool !== "inspect" || pending === undefined || pending.route !== activeRoute) {
+      return
+    }
+    const frame = requestAnimationFrame(() => {
+      const current = pendingOutlineSelection.current
+      if (current !== pending) {
+        return
+      }
+      pendingOutlineSelection.current = undefined
+      outlineSelectors.current.get(pending.route)?.(pending.element)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [activeRoute, tool])
+
   const nodes = useMemo<PageNode[]>(() => {
     if (viewportOption === undefined) {
       return []
@@ -1166,12 +1514,14 @@ const Designer = () => {
         onHeight,
         onInspect: inspectElement,
         onInvalidate: invalidateInspection,
+        onOutline: updateOutline,
         onPanEnd: endViewportPan,
         onPanMove: moveViewportPan,
         onPanStart: startViewportPan,
         onRegisterSelectionClear: registerSelectionClear,
+        onRegisterOutlineSelect: registerOutlineSelect,
         route,
-        selectedRoute: inspection?.route,
+        selectedRoute: activeRoute,
         selectionGeneration,
         viewportWidth: viewportOption.width,
       },
@@ -1185,16 +1535,18 @@ const Designer = () => {
     endViewportPan,
     heights,
     inspectElement,
-    inspection?.route,
+    activeRoute,
     invalidateInspection,
     moveViewportPan,
     onHeight,
     routes,
+    registerOutlineSelect,
     registerSelectionClear,
     selectionGeneration,
     spacePanning,
     startViewportPan,
     tool,
+    updateOutline,
     viewportOption,
   ])
 
@@ -1222,76 +1574,179 @@ const Designer = () => {
 
   return (
     <main className="designer">
-      <ReactFlow
-        elementsSelectable={false}
-        fitView
-        fitViewOptions={{ padding: 0.08 }}
-        maxZoom={1.5}
-        minZoom={0.02}
-        nodeTypes={nodeTypes}
-        nodes={nodes}
-        nodesConnectable={false}
-        nodesDraggable={false}
-        onPaneClick={() => {
-          if (tool === "inspect") {
-            clearSelectedElement()
-          }
-        }}
-        onInit={(instance) => {
-          flow.current = instance
-        }}
-        panOnDrag={tool === "pan" || spacePanning ? [0, 1] : [1]}
-        panOnScroll
-        preventScrolling
-        zoomOnDoubleClick={false}
-      >
-        <Background color="#d0d0d0" gap={24} size={1} variant={BackgroundVariant.Dots} />
-        <Controls position="bottom-right" showInteractive={false} />
-      </ReactFlow>
-      <label className="designer-viewport-control">
-        <span>Viewport</span>
-        <select
-          aria-label="Viewport breakpoint"
-          onChange={(event) => selectViewport(event.target.value)}
-          value={viewport}
-        >
-          {viewportOptions.map((option) => (
-            <option key={option.condition} value={option.condition}>
-              {option.label}
-              {option.threshold === "" ? "" : ` — ${option.threshold}`}
-            </option>
-          ))}
-        </select>
-      </label>
-      <nav aria-label="Canvas tools" className="designer-toolbar">
-        <button
-          aria-label="Pan tool (V)"
-          aria-pressed={tool === "pan"}
-          className="designer-toolbar__button"
-          onClick={() => activateTool("pan")}
-          title="Pan (V)"
-          type="button"
-        >
-          <Hand aria-hidden="true" />
-        </button>
-        <button
-          aria-label="Inspect tool (I)"
-          aria-pressed={tool === "inspect"}
-          className="designer-toolbar__button"
-          onClick={() => activateTool("inspect")}
-          title="Inspect (I)"
-          type="button"
-        >
-          <MousePointer2 aria-hidden="true" />
-        </button>
-      </nav>
-      {inspection === undefined ? null : (
-        <ElementInspector
-          inspection={inspection}
-          viewport={viewport}
-          viewportOptions={viewportOptions}
-        />
-      )}
+      <header className="designer-header" aria-label="Editor header">
+        <div className="designer-header__brand">
+          <SplatpadMark />
+        </div>
+        <div className="designer-header__location">
+          <strong>{siteName}</strong>
+          <code>{activeRoute ?? "/"}</code>
+        </div>
+        <label className="designer-viewport-control">
+          <span>Viewport</span>
+          <select
+            aria-label="Viewport breakpoint"
+            onChange={(event) => selectViewport(event.target.value)}
+            value={viewport}
+          >
+            {viewportOptions.map((option) => (
+              <option key={option.condition} value={option.condition}>
+                {option.label}
+                {option.threshold === "" ? "" : ` (${option.threshold})`}
+              </option>
+            ))}
+          </select>
+        </label>
+      </header>
+
+      <div className="designer-workspace">
+        <aside aria-label="Site outline" className="designer-routes">
+          <section className="designer-routes__section">
+            <header>
+              <h2>Pages</h2>
+              <span>{routes.length}</span>
+            </header>
+            <nav aria-label="Site pages">
+              {routes.map(({ route }) => {
+                const depth =
+                  route === "/" ? 0 : Math.max(0, route.split("/").filter(Boolean).length - 1)
+                return (
+                  <button
+                    aria-current={route === activeRoute ? "page" : undefined}
+                    key={route}
+                    onClick={() => focusRoute(route)}
+                    style={{ paddingLeft: 12 + depth * 14 }}
+                    type="button"
+                  >
+                    {depth > 0 ? <ChevronRight aria-hidden="true" /> : <File aria-hidden="true" />}
+                    <span>{route}</span>
+                  </button>
+                )
+              })}
+            </nav>
+          </section>
+          <section className="designer-routes__section designer-outline">
+            <header>
+              <h2>Outline</h2>
+              <span>{activeRoute === undefined ? 0 : (outlines[activeRoute]?.length ?? 0)}</span>
+            </header>
+            <nav aria-label="Page outline">
+              <div role="tree">
+                {(activeRoute === undefined ? [] : (outlines[activeRoute] ?? [])).map((item) => {
+                  const Icon = item.kind === "frame" ? Box : item.kind === "svg" ? Image : Type
+                  return (
+                    <button
+                      aria-keyshortcuts="Shift+Enter"
+                      aria-level={item.depth + 1}
+                      aria-selected={inspection?.element === item.element}
+                      data-outline-kind={item.kind}
+                      key={item.id}
+                      onDoubleClick={() => {
+                        if (activeRoute !== undefined) {
+                          focusOutlineElement(activeRoute, item.element)
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && event.shiftKey && activeRoute !== undefined) {
+                          event.preventDefault()
+                          focusOutlineElement(activeRoute, item.element)
+                        }
+                      }}
+                      onClick={() => selectOutlineItem(item)}
+                      role="treeitem"
+                      style={{ paddingLeft: 12 + item.depth * 14 }}
+                      title={`${item.label} · Double-click or Shift+Enter to zoom`}
+                      type="button"
+                    >
+                      <Icon aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </nav>
+          </section>
+        </aside>
+
+        <section aria-label="Design canvas" className="designer-canvas">
+          <ReactFlow
+            elementsSelectable={false}
+            fitView
+            fitViewOptions={{ padding: 0.08 }}
+            maxZoom={1.5}
+            minZoom={0.02}
+            nodeTypes={nodeTypes}
+            nodes={nodes}
+            nodesConnectable={false}
+            nodesDraggable={false}
+            onPaneClick={() => {
+              if (tool === "inspect") {
+                clearSelectedElement()
+              }
+            }}
+            onInit={(instance) => {
+              flow.current = instance
+            }}
+            panOnDrag={tool === "pan" || spacePanning ? [0, 1] : [1]}
+            panOnScroll
+            preventScrolling
+            zoomOnDoubleClick={false}
+          >
+            <Background color="#3f3f46" gap={24} size={1} variant={BackgroundVariant.Dots} />
+            <Controls position="bottom-right" showInteractive={false} />
+          </ReactFlow>
+          <nav aria-label="Canvas tools" className="designer-toolbar">
+            <button
+              aria-label="Pan tool (V)"
+              aria-pressed={tool === "pan"}
+              className="designer-toolbar__button"
+              onClick={() => activateTool("pan")}
+              title="Pan (V)"
+              type="button"
+            >
+              <Hand aria-hidden="true" />
+              <span>Pan</span>
+            </button>
+            <button
+              aria-label="Inspect tool (I)"
+              aria-pressed={tool === "inspect"}
+              className="designer-toolbar__button"
+              onClick={() => activateTool("inspect")}
+              title="Inspect (I)"
+              type="button"
+            >
+              <MousePointer2 aria-hidden="true" />
+              <span>Inspect</span>
+            </button>
+          </nav>
+        </section>
+
+        <section aria-label="Properties panel" className="designer-properties">
+          {inspection === undefined ? (
+            <aside className="designer-properties__empty">
+              <h2>Properties</h2>
+              <p>Choose Inspect, then select an element on the canvas.</p>
+            </aside>
+          ) : (
+            <ElementInspector
+              inspection={inspection}
+              viewport={viewport}
+              viewportOptions={viewportOptions}
+            />
+          )}
+        </section>
+      </div>
+
+      <footer className="designer-footer" aria-label="Editor status">
+        <span className="designer-footer__status">
+          <i aria-hidden="true" /> Ready
+        </span>
+        <span>{routes.length} pages</span>
+        <code>{activeRoute ?? "/"}</code>
+        <span className="designer-footer__viewport">
+          {viewportOption.label} · {viewportOption.width}px
+        </span>
+      </footer>
     </main>
   )
 }

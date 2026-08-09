@@ -88,6 +88,7 @@ describe("site dev server", () => {
         { route: "/story/" },
         { route: "/visit/" },
       ],
+      siteName: path.basename(siteRoot),
     })
   })
 

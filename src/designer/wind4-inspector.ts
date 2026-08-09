@@ -132,7 +132,7 @@ interface GeneratorWithTheme {
 
 const humanizeBreakpointName = (name: string): string => {
   const words = name.replace(/[-_]+/g, " ")
-  return `${words.charAt(0).toUpperCase()}${words.slice(1)} screens and up`
+  return `${words.toUpperCase()} screens and up`
 }
 
 const cssLengthInPixels = (value: string): number | undefined => {

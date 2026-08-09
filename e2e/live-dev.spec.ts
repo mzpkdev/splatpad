@@ -82,6 +82,180 @@ test("renders every route and reloads the board when routes change", async ({ pa
   expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
 })
 
+test("focuses a real page from the site outline without changing the canvas shell", async ({
+  page,
+}) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await expect(page.getByRole("complementary", { name: "Site outline" })).toBeVisible()
+  await expect(page.getByRole("option", { name: "SM screens and up (≥640px)" })).toHaveCount(1)
+  await expect(page.locator(".designer-routes")).toHaveCSS("scrollbar-width", "thin")
+  await expect
+    .poll(() =>
+      page
+        .locator(".designer-routes")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true)
+  await expect(
+    page.getByText("Choose Inspect, then select an element on the canvas."),
+  ).toBeVisible()
+  await waitForCanvasReady(page)
+
+  const scale = async (): Promise<number> =>
+    page.locator(".react-flow__viewport").evaluate((element) => {
+      return new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform).a
+    })
+  const overviewScale = await scale()
+
+  await page.getByRole("button", { name: "/menu/", exact: true }).click()
+
+  await expect(page.locator(".designer-header__location code")).toHaveText("/menu/")
+  await expect(page.locator('.page-frame[data-route="/menu/"]')).toHaveClass(/page-frame--active/)
+  await expect.poll(scale).toBeGreaterThan(overviewScale)
+
+  await page.setViewportSize({ width: 1024, height: 720 })
+  await expect(page.getByRole("complementary", { name: "Site outline" })).toBeVisible()
+  await expect
+    .poll(() =>
+      page
+        .locator(".designer-routes")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true)
+
+  await page.setViewportSize({ width: 800, height: 720 })
+  await expect(page.getByRole("complementary", { name: "Site outline" })).toBeVisible()
+  await expect
+    .poll(() =>
+      page
+        .locator(".designer-routes")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    )
+    .toBe(true)
+  await expect
+    .poll(() =>
+      page.locator(".designer-workspace").evaluate((workspace) => {
+        const sidebar = workspace.querySelector<HTMLElement>(".designer-routes")
+        const canvas = workspace.querySelector<HTMLElement>(".designer-canvas")
+        if (sidebar === null || canvas === null) {
+          return false
+        }
+        const workspaceBounds = workspace.getBoundingClientRect()
+        const sidebarBounds = sidebar.getBoundingClientRect()
+        const canvasBounds = canvas.getBoundingClientRect()
+        return (
+          canvasBounds.width > 0 &&
+          Math.abs(canvasBounds.left - sidebarBounds.right) < 1 &&
+          Math.abs(canvasBounds.right - workspaceBounds.right) < 1
+        )
+      }),
+    )
+    .toBe(true)
+})
+
+test("lists and selects the active page's frames, SVGs, and direct text parents", async ({
+  page,
+}) => {
+  const outlineRoute = path.join(siteRoot, "pages", "outline", "index.liquid")
+  await fs.mkdir(path.dirname(outlineRoute), { recursive: true })
+  await fs.writeFile(
+    outlineRoute,
+    `<main data-frame="Hero frame" class="frame-target">
+      <h1 class="text-target">Scoped outline text</h1>
+      <svg aria-label="Bakery mark" class="svg-target" viewBox="0 0 10 10"><title>Vector title</title><circle cx="5" cy="5" r="4" /></svg>
+    </main>`,
+  )
+
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  const canvasScale = async (): Promise<number> =>
+    page.locator(".react-flow__viewport").evaluate((element) => {
+      return new DOMMatrixReadOnly(globalThis.getComputedStyle(element).transform).a
+    })
+  const stableCanvasScale = async (): Promise<number> => {
+    const samples: number[] = []
+    await expect
+      .poll(
+        async () => {
+          samples.push(await canvasScale())
+          if (samples.length > 3) {
+            samples.shift()
+          }
+          return samples.length === 3 && Math.max(...samples) - Math.min(...samples) < 0.000_001
+        },
+        { intervals: [100, 100, 100, 100] },
+      )
+      .toBe(true)
+    return samples.at(-1) ?? 0
+  }
+  const overviewScale = await canvasScale()
+  await expect(page.getByRole("button", { name: "/outline/", exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "/outline/", exact: true }).click()
+  await expect.poll(canvasScale).toBeGreaterThan(overviewScale)
+  const routeScale = await stableCanvasScale()
+
+  const outline = page.getByRole("navigation", { name: "Page outline" })
+  await expect(
+    outline.locator('[data-outline-kind="frame"]', { hasText: "Hero frame" }),
+  ).toBeVisible()
+  await expect(
+    outline.locator('[data-outline-kind="svg"]', { hasText: "Bakery mark" }),
+  ).toBeVisible()
+  await expect(
+    outline.locator('[data-outline-kind="text"]', { hasText: "Scoped outline text" }),
+  ).toBeVisible()
+  await expect(
+    outline.locator('[data-outline-kind="text"]', { hasText: "Vector title" }),
+  ).toHaveCount(0)
+
+  await preview(page, "/outline/").evaluate((element) => {
+    const frame = element as HTMLIFrameElement
+    const mutation = frame.contentDocument?.createElement("p")
+    if (mutation === undefined) {
+      throw new Error("Expected the outline preview document")
+    }
+    mutation.className = "mutation-target"
+    mutation.textContent = "Live outline mutation"
+    frame.contentDocument?.body.append(mutation)
+  })
+  await expect(
+    outline.locator('[data-outline-kind="text"]', { hasText: "Live outline mutation" }),
+  ).toBeVisible()
+
+  await outline.locator('[data-outline-kind="frame"]', { hasText: "Hero frame" }).click()
+  await expect(inspectTool(page)).toHaveAttribute("aria-pressed", "true")
+  await expectInspectorClassName(page, "frame-target")
+
+  const svgOutlineItem = outline.locator('[data-outline-kind="svg"]', { hasText: "Bakery mark" })
+  await svgOutlineItem.click()
+  await expectInspectorClassName(page, "svg-target")
+  expect(await stableCanvasScale()).toBe(routeScale)
+  await svgOutlineItem.dblclick()
+  await expect.poll(canvasScale).toBeGreaterThan(routeScale)
+
+  await page.getByRole("button", { name: "/outline/", exact: true }).click()
+  const keyboardScale = await stableCanvasScale()
+  await svgOutlineItem.focus()
+  await page.keyboard.press("Shift+Enter")
+  await expect.poll(canvasScale).toBeGreaterThan(keyboardScale)
+
+  await outline.locator('[data-outline-kind="text"]', { hasText: "Scoped outline text" }).click()
+  await expectInspectorClassName(page, "text-target")
+
+  await page.getByRole("button", { name: "/menu/", exact: true }).click()
+  await expect(outline.getByText("Scoped outline text", { exact: true })).toHaveCount(0)
+
+  await page.getByRole("button", { name: "/outline/", exact: true }).click()
+  await fs.writeFile(
+    outlineRoute,
+    '<main data-frame="Replacement frame" class="replacement-target">Reloaded outline</main>',
+  )
+  await expect(outline.getByText("Hero frame", { exact: true })).toHaveCount(0)
+  await outline.getByRole("treeitem", { name: "Replacement frame", exact: true }).click()
+  await expectInspectorClassName(page, "replacement-target")
+
+  await fs.rm(path.dirname(outlineRoute), { recursive: true })
+})
+
 const panTool = (page: Page): Locator => page.getByRole("button", { name: "Pan tool (V)" })
 const inspectTool = (page: Page): Locator => page.getByRole("button", { name: "Inspect tool (I)" })
 const inspector = (page: Page): Locator =>
@@ -1093,7 +1267,7 @@ test.describe("canvas tools", () => {
     await expectInspectorClassName(page, classes[0])
   })
 
-  test("Given a full-width selection, its four-edge outline stays below floating full-height controls", async ({
+  test("Given a full-width selection, its four-edge outline stays below full-height controls", async ({
     page,
   }) => {
     const canvasBefore = await page.locator(".react-flow").boundingBox()
@@ -1132,8 +1306,8 @@ test.describe("canvas tools", () => {
     )
     expect(controlLayers.every((zIndex) => zIndex > snapshot.zIndex)).toBe(true)
 
-    await expect(inspector(page)).toHaveCSS("top", "16px")
-    await expect(inspector(page)).toHaveCSS("bottom", "16px")
+    await expect(inspector(page)).toHaveCSS("top", "0px")
+    await expect(inspector(page)).toHaveCSS("bottom", "0px")
     expect(await page.locator(".react-flow").boundingBox()).toEqual(canvasBefore)
   })
 
