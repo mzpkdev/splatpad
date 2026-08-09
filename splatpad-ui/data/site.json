@@ -1,0 +1,12 @@
+{
+  "site": {
+    "name": "Splatpad",
+    "description": "Design and build sites in one place."
+  },
+  "pages": {
+    "/": {
+      "title": "Dashboard Design",
+      "description": "A polished static workspace for designing the Northstar dashboard."
+    }
+  }
+}
