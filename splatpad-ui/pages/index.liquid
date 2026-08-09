@@ -262,7 +262,7 @@
                 </section>
 
                 <div class="mt-3 grid grid-cols-[1.55fr_1fr] gap-3">
-                  <section class="flex flex-col gap-3 rounded-xl border-2 border-violet-500 bg-white p-4 text-slate-800 shadow-sm" aria-labelledby="revenue-heading">
+                  <section class="flex flex-col gap-3 rounded-xl border-2 border-violet-500 bg-white p-4 font-sans text-sm font-normal leading-normal tracking-normal text-slate-800 shadow-sm selection:bg-violet-100 motion-reduce:transition-none print:break-inside-avoid" aria-labelledby="revenue-heading">
                     <div class="flex items-start justify-between">
                       <div><h2 id="revenue-heading" class="text-[10px] font-semibold text-slate-800">Revenue overview</h2><p class="mt-0.5 text-[8px] text-slate-400">January – June 2026</p></div>
                       <span class="rounded-md border border-slate-200 px-2 py-1 text-[8px] text-slate-500">Monthly⌄</span>
@@ -330,66 +330,120 @@
               <strong class="min-w-0 truncate text-[11px] font-semibold text-zinc-100">Revenue overview</strong>
               <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">&lt;section&gt;</code>
             </div>
-            <p class="mt-1 text-[10px] text-zinc-500">10 mapped tokens on this element</p>
+            <p class="mt-1 text-[10px] text-zinc-500">18 authored classes on this element</p>
           </header>
 
-          <div class="space-y-2.5 p-2.5">
-            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="layout-heading">
-              <h3 id="layout-heading" class="font-semibold text-zinc-100">Layout</h3>
-              <div class="mt-2 grid grid-cols-3 gap-2">
-                <label class="min-w-0 text-[9px] text-zinc-500">Display<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="flex" readonly></label>
-                <label class="min-w-0 text-[9px] text-zinc-500">Direction<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="col" readonly></label>
-                <label class="min-w-0 text-[9px] text-zinc-500">Gap<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="3" readonly></label>
+          <div class="space-y-2 p-2.5">
+            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="fill-heading">
+              <h3 id="fill-heading" class="font-semibold text-zinc-100">Fill</h3>
+              <div class="mt-2 grid h-9 grid-cols-[32px_1fr] items-center overflow-hidden rounded border border-zinc-600 bg-zinc-800">
+                <span class="grid h-full place-items-center border-r border-zinc-600" aria-hidden="true"><i class="h-4 w-4 rounded-sm border border-zinc-300 bg-white not-italic"></i></span>
+                <div class="flex min-w-0 items-center px-2">
+                  <span class="text-[9px] text-zinc-500">Background</span>
+                  <output class="ml-auto truncate font-mono text-[10px] text-zinc-100">white</output>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-lg border border-violet-500/25 bg-gradient-to-br from-violet-500/10 to-zinc-900/35 p-2.5" aria-labelledby="layout-heading">
+              <div class="flex items-center justify-between">
+                <h3 id="layout-heading" class="font-semibold text-zinc-100">Layout</h3>
+                <output class="rounded bg-violet-500/20 px-1.5 py-0.5 font-mono text-[9px] text-violet-200">flex</output>
+              </div>
+              <div class="mt-2.5 grid grid-cols-[72px_1fr] gap-3">
+                <div class="flex h-[72px] flex-col justify-center gap-2.5 rounded-md border border-violet-400/30 bg-zinc-950/60 p-2" aria-label="Column layout preview with gap 3">
+                  <span class="h-2 w-full rounded-sm bg-violet-300/80"></span>
+                  <span class="h-2 w-4/5 rounded-sm bg-violet-400/60"></span>
+                  <span class="h-2 w-3/5 rounded-sm bg-violet-500/45"></span>
+                </div>
+                <dl class="grid content-center gap-2 text-[9px]">
+                  <div class="flex items-center justify-between border-b border-zinc-700/70 pb-1.5"><dt class="text-zinc-500">Direction</dt><dd><output class="font-mono text-[10px] text-zinc-100">col</output></dd></div>
+                  <div class="flex items-center justify-between"><dt class="text-zinc-500">Gap</dt><dd><output class="grid h-5 min-w-5 place-items-center rounded bg-violet-500/20 px-1 font-mono text-[10px] text-violet-200">3</output></dd></div>
+                </dl>
               </div>
             </section>
 
             <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="padding-heading">
-              <h3 id="padding-heading" class="font-semibold text-zinc-100">Padding</h3>
-              <div class="mt-2 grid grid-cols-4 gap-1.5">
-                <label class="min-w-0 text-center text-[9px] text-zinc-500">Top<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-1 text-center font-mono text-[10px] text-zinc-100 outline-none" type="text" value="4" readonly></label>
-                <label class="min-w-0 text-center text-[9px] text-zinc-500">Right<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-1 text-center font-mono text-[10px] text-zinc-100 outline-none" type="text" value="4" readonly></label>
-                <label class="min-w-0 text-center text-[9px] text-zinc-500">Bottom<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-1 text-center font-mono text-[10px] text-zinc-100 outline-none" type="text" value="4" readonly></label>
-                <label class="min-w-0 text-center text-[9px] text-zinc-500">Left<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-1 text-center font-mono text-[10px] text-zinc-100 outline-none" type="text" value="4" readonly></label>
+              <div class="flex items-center justify-between">
+                <h3 id="padding-heading" class="font-semibold text-zinc-100">Padding</h3>
+                <span class="text-[9px] text-zinc-500">All sides</span>
+              </div>
+              <div class="mt-2 grid h-20 grid-cols-[38px_1fr_38px] grid-rows-[20px_1fr_20px] items-center text-center font-mono text-[10px]">
+                <output class="col-start-2 row-start-1 text-violet-300">4</output>
+                <output class="col-start-1 row-start-2 text-violet-300">4</output>
+                <div class="col-start-2 row-start-2 grid h-full place-items-center rounded-lg border border-dashed border-violet-400/40 bg-violet-500/8">
+                  <span class="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-[9px] text-zinc-500">content</span>
+                </div>
+                <output class="col-start-3 row-start-2 text-violet-300">4</output>
+                <output class="col-start-2 row-start-3 text-violet-300">4</output>
               </div>
             </section>
 
             <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="text-heading">
-              <h3 id="text-heading" class="font-semibold text-zinc-100">Text</h3>
-              <label class="mt-2 block text-[9px] text-zinc-500">Color
-                <span class="relative mt-1 block">
-                  <span class="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 rounded-sm bg-slate-800" aria-hidden="true"></span>
-                  <input class="h-7 w-full rounded border border-zinc-600 bg-zinc-800 pl-7 pr-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="slate-800" readonly>
-                </span>
-              </label>
-            </section>
-
-            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="fill-heading">
-              <h3 id="fill-heading" class="font-semibold text-zinc-100">Fill</h3>
-              <label class="mt-2 block text-[9px] text-zinc-500">Background
-                <span class="relative mt-1 block">
-                  <span class="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 rounded-sm border border-zinc-400 bg-white" aria-hidden="true"></span>
-                  <input class="h-7 w-full rounded border border-zinc-600 bg-zinc-800 pl-7 pr-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="white" readonly>
-                </span>
-              </label>
+              <div class="flex items-center justify-between">
+                <h3 id="text-heading" class="font-semibold text-zinc-100">Text</h3>
+                <svg class="lucide lucide-type h-3.5 w-3.5 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>
+              </div>
+              <div class="mt-2 grid grid-cols-2 overflow-hidden rounded border border-zinc-600 bg-zinc-800">
+                <div class="border-r border-zinc-600 px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Family</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">sans</output></div>
+                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Weight</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">normal</output></div>
+              </div>
+              <div class="mt-1.5 grid grid-cols-3 divide-x divide-zinc-600 overflow-hidden rounded border border-zinc-600 bg-zinc-800">
+                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Size</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">sm</output></div>
+                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Line</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">normal</output></div>
+                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Tracking</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">normal</output></div>
+              </div>
+              <div class="mt-1.5 grid h-8 grid-cols-[26px_54px_1fr] items-center overflow-hidden rounded border border-zinc-600 bg-zinc-800">
+                  <span class="mx-auto h-3.5 w-3.5 rounded-sm bg-slate-800" aria-hidden="true"></span>
+                  <span class="text-[9px] text-zinc-500">Color</span>
+                  <output class="truncate px-2 text-right font-mono text-[10px] text-zinc-100">slate-800</output>
+              </div>
             </section>
 
             <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="border-heading">
               <h3 id="border-heading" class="font-semibold text-zinc-100">Border &amp; corners</h3>
-              <div class="mt-2 grid grid-cols-[48px_minmax(0,1fr)_48px] gap-2">
-                <label class="min-w-0 text-[9px] text-zinc-500">Width<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="2" readonly></label>
-                <label class="min-w-0 text-[9px] text-zinc-500">Color
-                  <span class="relative mt-1 block">
-                    <span class="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 rounded-sm bg-violet-500" aria-hidden="true"></span>
-                    <input class="h-7 w-full rounded border border-zinc-600 bg-zinc-800 pl-7 pr-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="violet-500" readonly>
-                  </span>
-                </label>
-                <label class="min-w-0 text-[9px] text-zinc-500">Radius<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="xl" readonly></label>
+              <div class="mt-2 divide-y divide-zinc-700 overflow-hidden rounded border border-zinc-600 bg-zinc-800">
+                <div class="grid h-8 grid-cols-[26px_1fr_auto] items-center">
+                  <span class="mx-auto h-3.5 w-3.5 rounded-sm bg-violet-500" aria-hidden="true"></span>
+                  <span class="px-1 text-[9px] text-zinc-500">Border color</span>
+                  <output class="px-2 font-mono text-[10px] text-zinc-100">violet-500</output>
+                </div>
+                <div class="grid h-8 grid-cols-[26px_1fr_auto] items-center">
+                  <span class="mx-auto h-0.5 w-3.5 bg-zinc-400" aria-hidden="true"></span>
+                  <span class="px-1 text-[9px] text-zinc-500">Border width</span>
+                  <output class="px-2 font-mono text-[10px] text-zinc-100">2</output>
+                </div>
+                <div class="grid h-8 grid-cols-[26px_1fr_auto] items-center">
+                  <svg class="mx-auto h-3.5 w-3.5 text-zinc-500" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 13V7a4 4 0 0 1 4-4h6"/></svg>
+                  <span class="px-1 text-[9px] text-zinc-500">All corners</span>
+                  <output class="px-2 font-mono text-[10px] text-zinc-100">xl</output>
+                </div>
               </div>
             </section>
 
             <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="effects-heading">
-              <h3 id="effects-heading" class="font-semibold text-zinc-100">Effects</h3>
-              <label class="mt-2 block text-[9px] text-zinc-500">Shadow<input class="mt-1 h-7 w-full rounded border border-zinc-600 bg-zinc-800 px-2 font-mono text-[10px] text-zinc-100 outline-none" type="text" value="sm" readonly></label>
+              <div class="flex items-center justify-between">
+                <h3 id="effects-heading" class="font-semibold text-zinc-100">Effects</h3>
+                <span class="font-mono text-[9px] text-zinc-500">fx</span>
+              </div>
+              <div class="mt-2 flex h-9 items-center rounded border border-zinc-600 bg-zinc-800 px-2">
+                <span class="relative mr-2 h-4 w-5" aria-hidden="true"><i class="absolute left-0 top-0 h-3 w-3 rounded-sm border border-zinc-400 bg-zinc-700 not-italic"></i><i class="absolute bottom-0 right-0 h-3 w-3 rounded-sm bg-white shadow-sm not-italic"></i></span>
+                <span class="text-[9px] text-zinc-300">Drop shadow</span>
+                <output class="ml-auto rounded bg-zinc-700 px-2 py-0.5 font-mono text-[10px] text-zinc-100">sm</output>
+              </div>
+            </section>
+
+            <section class="rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5" aria-labelledby="other-classes-heading">
+              <div class="flex items-center justify-between">
+                <h3 id="other-classes-heading" class="font-semibold text-zinc-100">Other classes</h3>
+                <span class="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[9px] text-amber-300">3</span>
+              </div>
+              <p class="mt-1 text-[9px] text-zinc-500">Unmapped utilities and variants</p>
+              <div class="mt-2 space-y-1.5">
+                <code class="block truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-[10px] text-amber-200" title="selection:bg-violet-100">selection:bg-violet-100</code>
+                <code class="block truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-[10px] text-amber-200" title="motion-reduce:transition-none">motion-reduce:transition-none</code>
+                <code class="block truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-[10px] text-amber-200" title="print:break-inside-avoid">print:break-inside-avoid</code>
+              </div>
             </section>
           </div>
         </div>
