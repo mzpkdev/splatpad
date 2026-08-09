@@ -425,6 +425,49 @@ const clickTarget = async (page: Page, target: Locator): Promise<void> => {
   await page.mouse.click(center.x, center.y)
 }
 
+const clickTargetRapidly = async (page: Page, target: Locator, count: number): Promise<void> => {
+  const center = await centerOf(target)
+  await page.locator("body").evaluate(
+    (body, options) => {
+      const surface = body.ownerDocument.elementFromPoint(options.x, options.y)
+      if (
+        !(surface instanceof HTMLElement) ||
+        !surface.classList.contains("page-frame__interaction-surface")
+      ) {
+        throw new Error("Expected the target to be covered by an inspection surface")
+      }
+      for (let index = 0; index < options.count; index += 1) {
+        const pointerId = index + 1
+        surface.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            buttons: 1,
+            clientX: options.x,
+            clientY: options.y,
+            isPrimary: true,
+            pointerId,
+            pointerType: "mouse",
+          }),
+        )
+        surface.dispatchEvent(
+          new PointerEvent("pointerup", {
+            bubbles: true,
+            button: 0,
+            buttons: 0,
+            clientX: options.x,
+            clientY: options.y,
+            isPrimary: true,
+            pointerId,
+            pointerType: "mouse",
+          }),
+        )
+      }
+    },
+    { ...center, count },
+  )
+}
+
 const hoverTarget = async (page: Page, target: Locator): Promise<void> => {
   const center = await centerOf(target)
   await page.mouse.move(center.x, center.y)
@@ -1250,17 +1293,21 @@ test.describe("canvas tools", () => {
     await waitForInspectReady(page)
     await clickTarget(page, heading)
     await expectInspectorClassName(page, classes[0])
-    await clickTarget(page, heading)
-    await expectInspectorClassName(page, classes[1])
-    await clickTarget(page, heading)
-    await expectInspectorClassName(page, classes[2])
 
     await page.waitForTimeout(550)
     await clickTarget(page, heading)
     await expectInspectorClassName(page, classes[0])
 
-    await clickTarget(page, heading)
+    await page.waitForTimeout(550)
+    await clickTargetRapidly(page, heading, 2)
     await expectInspectorClassName(page, classes[1])
+
+    await page.waitForTimeout(550)
+    await clickTargetRapidly(page, heading, 3)
+    await expectInspectorClassName(page, classes[2])
+
+    await page.waitForTimeout(550)
+    await clickTargetRapidly(page, heading, 2)
     await clickTarget(page, paragraph)
     await expectInspectorClassName(page, paragraphClass ?? "")
     await clickTarget(page, heading)
