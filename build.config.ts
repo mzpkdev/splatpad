@@ -11,5 +11,14 @@ export default defineBuildConfig({
         external: ["@unocss/preset-wind4", "cmdore", "liquidjs", "unocss/vite", "vite"],
       },
     },
+    {
+      type: "bundle",
+      input: "./src/designer/designer.tsx",
+      outDir: "./dist",
+      dts: false,
+      rolldown: {
+        external: ["@xyflow/react", "react", "react-dom/client"],
+      },
+    },
   ],
 })

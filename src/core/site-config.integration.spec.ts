@@ -43,6 +43,7 @@ describe("site dev server", () => {
     const port = await availablePort()
     server = await createServer(
       createSiteConfig(siteRoot, {
+        design: true,
         server: { host: "127.0.0.1", port, strictPort: true },
       }),
     )
@@ -63,6 +64,32 @@ describe("site dev server", () => {
     expect(await home.text()).toContain("A little joy, baked daily")
     expect(menu.status).toBe(200)
     expect(await menu.text()).toContain("Today’s bake")
+  })
+
+  it("serves the design shell and current route manifest from the reserved path", async () => {
+    const shell = await fetch(`${baseUrl}/__splatpad/design/`)
+    const manifest = await fetch(`${baseUrl}/__splatpad/design/routes`)
+    const stylesheet = await fetch(`${baseUrl}/__splatpad/design/styles.css`)
+
+    expect(shell.status).toBe(200)
+    const shellHtml = await shell.text()
+    expect(shellHtml).toContain("Splatpad Design")
+    expect(shellHtml).not.toContain("/@vite/client")
+    expect(manifest.status).toBe(200)
+    expect(stylesheet.status).toBe(200)
+    expect(await stylesheet.text()).toContain(".react-flow")
+    expect(await manifest.json()).toEqual({
+      routes: [
+        { route: "/" },
+        { route: "/journal/" },
+        { route: "/journal/seasonal-jam/" },
+        { route: "/journal/slow-mornings/" },
+        { route: "/menu/" },
+        { route: "/story/" },
+        { route: "/visit/" },
+      ],
+      siteName: path.basename(siteRoot),
+    })
   })
 
   it("redirects a discovered slashless route to its canonical route", async () => {

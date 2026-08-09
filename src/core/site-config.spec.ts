@@ -1,6 +1,7 @@
 import { beforeEach, describe, describe as context, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
+  designerPlugin: vi.fn(() => ({ name: "splatpad:designer" })),
   liquidPlugin: vi.fn(() => ({ name: "splatpad:liquid" })),
   presetWind4: vi.fn(() => ({ name: "wind4-preset" })),
   terminal: { quiet: false, jsonMode: false },
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@unocss/preset-wind4", () => ({ presetWind4: mocks.presetWind4 }))
 vi.mock("cmdore", () => ({ terminal: mocks.terminal }))
 vi.mock("unocss/vite", () => ({ default: mocks.unoCss }))
+vi.mock("../plugins/designer", () => ({ designerPlugin: mocks.designerPlugin }))
 vi.mock("../plugins/liquid", () => ({ liquidPlugin: mocks.liquidPlugin }))
 vi.mock("./site-routes", () => ({ discoverSiteRoutes: vi.fn(() => mocks.routes) }))
 
@@ -85,6 +87,19 @@ describe("createSiteConfig", () => {
   context("when no build output is configured", () => {
     it("lets Vite use its normal build defaults", () => {
       expect(createSiteConfig("/sites/example").build).toBeUndefined()
+    })
+  })
+
+  context("when design mode is enabled", () => {
+    it("mounts the designer before the site renderer", () => {
+      const config = createSiteConfig("/sites/example", { design: true })
+
+      expect(config.plugins).toMatchObject([
+        { name: "splatpad:designer" },
+        { name: "splatpad:liquid" },
+        { name: "unocss" },
+      ])
+      expect(mocks.designerPlugin).toHaveBeenCalledWith({ root: "/sites/example" })
     })
   })
 

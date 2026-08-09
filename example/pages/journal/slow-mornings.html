@@ -1,7 +1,7 @@
 {% layout 'base' %} {% block content %}
 <main>
   <article>
-    <header class="mx-auto max-w-4xl px-5 py-16 sm:px-8 sm:py-24">
+    <header class="mx-auto max-w-4xl px-5 py-16 sm:px-8 sm:py-24" data-frame="Article header">
       <a class="text-sm font-bold text-[#b14f31]" href="/journal/">← Bakehouse journal</a>
       <p class="mt-10 text-sm font-bold uppercase tracking-[0.18em] text-[#74685e]">
         Bread · 4 minute read
@@ -12,14 +12,17 @@
       <p class="mt-7 text-xl leading-9 text-[#62584f]">{{ page.description }}</p>
     </header>
 
-    <div class="bg-[#bd4828] text-white">
+    <div class="bg-[#bd4828] text-white" data-frame="Article pull quote">
       <div class="mx-auto max-w-3xl px-5 py-14 text-xl font-bold leading-9 sm:px-8">
         Flour, water, salt, time. Three ingredients do the visible work. The fourth does nearly
         everything else.
       </div>
     </div>
 
-    <div class="mx-auto max-w-3xl space-y-6 px-5 py-16 text-lg leading-8 text-[#62584f] sm:px-8">
+    <div
+      class="mx-auto max-w-3xl space-y-6 px-5 py-16 text-lg leading-8 text-[#62584f] sm:px-8"
+      data-frame="Article body"
+    >
       <p>
         Every Alder sourdough begins the afternoon before it reaches the shelf. We mix gently, fold
         the dough through the evening, then let the cold settle everything down overnight.
