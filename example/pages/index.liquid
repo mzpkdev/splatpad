@@ -14,19 +14,18 @@
         {{ page.description }}
       </p>
       <div class="mt-9 flex flex-wrap gap-3">
-        <a
-          class="inline-flex rounded-full bg-[#bd4828] px-6 py-3 font-bold text-white transition-transform hover:-translate-y-0.5"
-          href="{{ page.cta.href }}"
-        >
+        {% component "link-button", href: page.cta.href, variant: "primary" %}
           {{ page.cta.label }}
-        </a>
-        <a class="inline-flex rounded-full border border-[#302b27]/20 px-6 py-3 font-bold" href="/visit/">Plan a visit</a>
+        {% endcomponent %}
+        {% component "link-button", href: "/visit/", variant: "secondary" %}Plan a visit{% endcomponent %}
       </div>
       </div>
       <div class="relative mx-auto aspect-square w-full max-w-md rounded-[3rem] bg-[#dbe5cb] p-8 sm:p-12" role="img" aria-label="A fresh loaf of bread with a baked-this-morning label" data-frame="Fresh loaf illustration">
         <div class="absolute left-8 top-9 size-16 rounded-full bg-[#f4c95d]"></div>
         <div class="grid h-full place-items-center rounded-[45%_55%_48%_52%] bg-[#e9a55f] text-8xl shadow-[inset_-18px_-20px_0_rgba(177,79,49,0.12)]" aria-hidden="true">☁</div>
-        <span class="absolute bottom-9 right-7 rotate-6 rounded-full bg-white px-4 py-2 text-sm font-bold shadow-sm">Baked this morning</span>
+        <div class="absolute bottom-9 right-7 rotate-6 shadow-sm">
+          {% component "badge", variant: "accent" %}Baked this morning{% endcomponent %}
+        </div>
       </div>
     </section>
 
@@ -41,7 +40,10 @@
         </div>
         <div class="grid gap-5 md:grid-cols-3">
         {% for item in featured_items %}
-          {% render 'menu-card', item: item %}
+          {% component "menu-card", name: item.name, mark: item.mark, color: item.color %}
+            {{ item.description }}
+            {% slot "price" %}{{ item.price }}{% endslot %}
+          {% endcomponent %}
         {% endfor %}
         </div>
       </div>

@@ -45,7 +45,7 @@ describe("liquidPlugin", () => {
   beforeEach(async () => {
     siteRoot = await fs.mkdtemp(path.join(os.tmpdir(), "splatpad-liquid-"))
     await Promise.all(
-      ["data", "layouts", "pages", "partials"].map((directory) =>
+      ["components", "data", "layouts", "pages", "partials"].map((directory) =>
         fs.mkdir(path.join(siteRoot, directory)),
       ),
     )
@@ -65,6 +65,20 @@ describe("liquidPlugin", () => {
     const plugin = liquidPlugin({ root: siteRoot, routes: discoverSiteRoutes(siteRoot) })
 
     await expect(renderFor(plugin, "/")).resolves.toBe("Hello, Splatpad!")
+  })
+
+  it("renders components from the site components directory", async () => {
+    await fs.writeFile(
+      path.join(siteRoot, "components", "greeting.liquid"),
+      "<strong>{{ name }}: {% yield %}</strong>",
+    )
+    await fs.writeFile(
+      path.join(siteRoot, "pages/index.liquid"),
+      `{% component "greeting", name: site.name %}{{ page.title }}{% endcomponent %}`,
+    )
+    const plugin = liquidPlugin({ root: siteRoot, routes: discoverSiteRoutes(siteRoot) })
+
+    await expect(renderFor(plugin, "/")).resolves.toBe("<strong>Splatpad: Home</strong>")
   })
 
   it.each([
@@ -132,19 +146,21 @@ describe("liquidPlugin", () => {
     },
   )
 
-  it.each(["layouts/base.liquid", "partials/card.liquid", "data/site.json"])(
-    "queues a full reload when %s changes",
-    async (relativeFile) => {
-      vi.useFakeTimers()
-      const send = vi.fn()
-      const plugin = liquidPlugin({ root: siteRoot, routes: discoverSiteRoutes(siteRoot) })
+  it.each([
+    "components/card.liquid",
+    "layouts/base.liquid",
+    "partials/card.liquid",
+    "data/site.json",
+  ])("queues a full reload when %s changes", async (relativeFile) => {
+    vi.useFakeTimers()
+    const send = vi.fn()
+    const plugin = liquidPlugin({ root: siteRoot, routes: discoverSiteRoutes(siteRoot) })
 
-      await triggerHotUpdate(plugin, "update", path.join(siteRoot, relativeFile), send)
-      await vi.advanceTimersByTimeAsync(25)
+    await triggerHotUpdate(plugin, "update", path.join(siteRoot, relativeFile), send)
+    await vi.advanceTimersByTimeAsync(25)
 
-      expect(send).toHaveBeenCalledWith({ type: "full-reload", path: "*" })
-    },
-  )
+    expect(send).toHaveBeenCalledWith({ type: "full-reload", path: "*" })
+  })
 
   it.each(["pages/about.html", "layouts/base.liquid.html", "partials/card.html"])(
     "queues a full reload for the template alias %s",

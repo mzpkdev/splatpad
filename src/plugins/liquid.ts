@@ -8,6 +8,7 @@ import {
   isTemplateFile,
   type SiteRoute,
 } from "../core/site-routes"
+import { registerComponentDialect } from "./components"
 
 const htmlShell = "<!doctype html><html><head></head><body></body></html>"
 
@@ -28,8 +29,9 @@ export const liquidPlugin = ({
     path.resolve(siteRoot, "pages"),
     path.resolve(siteRoot, "layouts"),
     path.resolve(siteRoot, "partials"),
+    path.resolve(siteRoot, "components"),
   ]
-  const engine = new Liquid({
+  const liquidOptions = {
     root: path.resolve(siteRoot, "pages"),
     layouts: path.resolve(siteRoot, "layouts"),
     partials: path.resolve(siteRoot, "partials"),
@@ -37,7 +39,13 @@ export const liquidPlugin = ({
     cache: false,
     strictFilters: true,
     strictVariables: true,
+  }
+  const engine = new Liquid(liquidOptions)
+  const componentEngine = new Liquid({
+    ...liquidOptions,
+    root: path.resolve(siteRoot, "components"),
   })
+  registerComponentDialect(engine, componentEngine)
   let reloadTimer: ReturnType<typeof setTimeout> | undefined
 
   const render = async (

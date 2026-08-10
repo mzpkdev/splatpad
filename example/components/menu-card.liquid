@@ -1,0 +1,13 @@
+{% assign frame_label = "Featured item: " | append: name %}
+{% component "card", label: frame_label, variant: "paper" %}
+  {% slot "header" %}
+    {% component "menu-mark", color: color %}{{ mark }}{% endcomponent %}
+  {% endslot %}
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h3 class="text-lg font-bold">{{ name }}</h3>
+      <p class="mt-1 text-sm leading-6 text-[#74685e]">{% yield %}</p>
+    </div>
+    <p class="font-bold text-[#b14f31]">{% yield "price" %}</p>
+  </div>
+{% endcomponent %}
