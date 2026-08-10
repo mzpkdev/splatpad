@@ -15,6 +15,37 @@ export interface PositionedDesignRoute extends DesignRoute {
   position: { x: number; y: number }
 }
 
+export interface DesignComponent {
+  height: number
+  name: string
+  route: string
+  width: number
+}
+
+export interface PositionedDesignComponent extends DesignComponent {
+  group: string
+  position: { x: number; y: number }
+}
+
+export interface PositionedComponentGroup {
+  componentCount: number
+  height: number
+  label: string
+  name: string
+  position: { x: number; y: number }
+  width: number
+}
+
+export interface ComponentLayout {
+  components: PositionedDesignComponent[]
+  groups: PositionedComponentGroup[]
+}
+
+export const componentGap = 36
+export const componentGroupGap = 84
+export const componentGroupHeaderHeight = 42
+export const componentLayoutWidth = 1_180
+
 interface RouteTreeNode {
   children: Map<string, RouteTreeNode>
   route?: DesignRoute
@@ -123,4 +154,62 @@ export const layoutDesignRoutes = (routes: readonly DesignRoute[]): PositionedDe
   }
 
   return positioned
+}
+
+const componentGroup = (name: string): string => {
+  const separator = name.lastIndexOf("/")
+  return separator < 0 ? "" : name.slice(0, separator)
+}
+
+export const layoutDesignComponents = (
+  components: readonly DesignComponent[],
+  rowWidth = componentLayoutWidth,
+): ComponentLayout => {
+  const grouped = new Map<string, DesignComponent[]>()
+  for (const component of components) {
+    const group = componentGroup(component.name)
+    const entries = grouped.get(group) ?? []
+    entries.push(component)
+    grouped.set(group, entries)
+  }
+
+  const positioned: PositionedDesignComponent[] = []
+  const groups: PositionedComponentGroup[] = []
+  let groupTop = 0
+
+  for (const [name, entries] of [...grouped.entries()].sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    let left = 0
+    let rowTop = groupTop + componentGroupHeaderHeight
+    let rowHeight = 0
+    let occupiedWidth = 0
+
+    for (const component of entries.sort((first, second) =>
+      first.name.localeCompare(second.name),
+    )) {
+      if (left > 0 && left + component.width > rowWidth) {
+        left = 0
+        rowTop += rowHeight + componentGap
+        rowHeight = 0
+      }
+      positioned.push({ ...component, group: name, position: { x: left, y: rowTop } })
+      occupiedWidth = Math.max(occupiedWidth, left + component.width)
+      left += component.width + componentGap
+      rowHeight = Math.max(rowHeight, component.height + frameHeaderHeight)
+    }
+
+    const height = rowTop + rowHeight - groupTop
+    groups.push({
+      componentCount: entries.length,
+      height,
+      label: name === "" ? "Root components" : name,
+      name,
+      position: { x: 0, y: groupTop },
+      width: Math.max(occupiedWidth, 240),
+    })
+    groupTop += height + componentGroupGap
+  }
+
+  return { components: positioned, groups }
 }

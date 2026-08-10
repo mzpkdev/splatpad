@@ -36,8 +36,9 @@ const componentPreviewDocument = (
     <title>${escapeHtml(preview.name)} component</title>
     <link rel="stylesheet" href="/__uno.css">
     <style>
-      html { min-height: 100%; background: #fff; }
-      body { min-height: 100%; margin: 0; padding: 32px; box-sizing: border-box; }
+      html, body { background: transparent; }
+      html { min-height: 0; }
+      body { min-height: 0; margin: 0; padding: 32px; box-sizing: border-box; }
       .splatpad-component-preview-error {
         max-width: 640px; margin: 0; padding: 20px; border: 1px dashed #d97706;
         border-radius: 8px; background: #fffbeb; color: #78350f;

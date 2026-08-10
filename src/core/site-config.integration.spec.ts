@@ -162,7 +162,9 @@ describe("site dev server", () => {
   it("renders authored, automatic, and missing-data component previews", async () => {
     const button = await fetch(`${baseUrl}/__splatpad/design/components/button/`)
     expect(button.status).toBe(200)
-    expect(await button.text()).toContain("Order now")
+    const buttonHtml = await button.text()
+    expect(buttonHtml).toContain("Order now")
+    expect(buttonHtml).toContain("html, body { background: transparent; }")
 
     const automaticFile = path.join(siteRoot, "components", "automatic.liquid")
     const brokenFile = path.join(siteRoot, "components", "broken.liquid")

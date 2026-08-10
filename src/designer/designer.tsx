@@ -2,8 +2,15 @@ import { Background, BackgroundVariant, Controls, ReactFlow } from "@xyflow/reac
 import type { Node, NodeProps, NodeTypes, ReactFlowInstance } from "@xyflow/react"
 import { Box, ChevronRight, File, Hand, Image, MousePointer2, Type } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { CSSProperties } from "react"
 import { createRoot } from "react-dom/client"
-import { frameHeaderHeight, frameWidth, initialFrameHeight, layoutDesignRoutes } from "./layout"
+import {
+  frameHeaderHeight,
+  frameWidth,
+  initialFrameHeight,
+  layoutDesignComponents,
+  layoutDesignRoutes,
+} from "./layout"
 import {
   getWind4ViewportOptions,
   inspectWind4ClassName,
@@ -86,8 +93,11 @@ interface PageNodeData extends Record<string, unknown> {
   contentHeight: number
   inspecting: boolean
   interactive: boolean
+  kind: "component" | "page"
   label: string
+  preview?: ComponentRecord["preview"]
   onHeight: (route: string, height: number) => void
+  onSize: (route: string, size: { height: number; width: number }) => void
   onInspect: (inspection: InspectedElement, select?: () => void) => void
   onInvalidate: (route: string) => void
   onOutline: (route: string, items: OutlineItem[]) => void
@@ -104,6 +114,22 @@ interface PageNodeData extends Record<string, unknown> {
 
 type PageNode = Node<PageNodeData, "page">
 
+interface CatalogGroupNodeData extends Record<string, unknown> {
+  componentCount: number
+  label: string
+  path: string
+}
+
+type CatalogGroupNode = Node<CatalogGroupNodeData, "catalogGroup">
+
+interface CatalogSurfaceNodeData extends Record<string, unknown> {
+  height: number
+  width: number
+}
+
+type CatalogSurfaceNode = Node<CatalogSurfaceNodeData, "catalogSurface">
+type DesignNode = PageNode | CatalogGroupNode | CatalogSurfaceNode
+
 const overlayAttribute = "data-splatpad-inspector-overlay"
 const inspectionClickStreakMs = 500
 const inspectionClickMovement = 4
@@ -118,6 +144,41 @@ const documentHeight = (document: Document): number => {
     root.offsetHeight,
     root.clientHeight,
   )
+}
+
+const componentDocumentHeight = (document: Document): number => {
+  const body = document.body
+  if (body === null) {
+    return 1
+  }
+  const style = document.defaultView?.getComputedStyle(body)
+  const padding =
+    Number.parseFloat(style?.paddingTop ?? "0") + Number.parseFloat(style?.paddingBottom ?? "0")
+  const bounds = [...body.children].map((element) => element.getBoundingClientRect())
+  const contentHeight =
+    bounds.length === 0
+      ? 0
+      : Math.max(...bounds.map(({ bottom }) => bottom)) - Math.min(...bounds.map(({ top }) => top))
+  return Math.max(1, Math.ceil(body.offsetHeight), Math.ceil(contentHeight + padding))
+}
+
+const componentDocumentWidth = (document: Document): number => {
+  const body = document.body
+  if (body === null) {
+    return 240
+  }
+  const bodyStyle = document.defaultView?.getComputedStyle(body)
+  const padding =
+    Number.parseFloat(bodyStyle?.paddingLeft ?? "0") +
+    Number.parseFloat(bodyStyle?.paddingRight ?? "0")
+  const bounds = [...body.children].map((element) => element.getBoundingClientRect())
+  const contentWidth =
+    bounds.length === 0
+      ? body.scrollWidth
+      : Math.max(...bounds.map(({ right }) => right)) -
+        Math.min(...bounds.map(({ left }) => left)) +
+        padding
+  return Math.ceil(contentWidth)
 }
 
 const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
@@ -137,6 +198,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const interactionSurfaceRef = useRef<HTMLDivElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
   const measurementGeneration = useRef(0)
+  const disconnectMeasurement = useRef<() => void>(() => undefined)
   const hoveredElement = useRef<Element | undefined>(undefined)
   const hitElement = useRef<Element | undefined>(undefined)
   const lastInspectionClick = useRef<number | undefined>(undefined)
@@ -320,6 +382,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
   const measureFrame = useCallback(
     (frame: HTMLIFrameElement): void => {
+      disconnectMeasurement.current()
       const generation = ++measurementGeneration.current
       if (measurementFrame.current !== undefined) {
         cancelAnimationFrame(measurementFrame.current)
@@ -338,9 +401,13 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           return
         }
         measurementFrame.current = undefined
-        const height = documentHeight(document)
+        const height =
+          data.kind === "component" ? componentDocumentHeight(document) : documentHeight(document)
         if (height > 0 && isCurrentDocument()) {
           data.onHeight(data.route, height)
+          if (data.kind === "component") {
+            data.onSize(data.route, { height, width: componentDocumentWidth(document) })
+          }
         }
       }
 
@@ -356,6 +423,15 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
       scheduleMeasure()
       void document.fonts.ready.then(scheduleMeasure)
+      const frameWindow = document.defaultView
+      if (document.body !== null && frameWindow !== null) {
+        const observer = new frameWindow.ResizeObserver(scheduleMeasure)
+        observer.observe(document.body)
+        disconnectMeasurement.current = () => {
+          observer.disconnect()
+          disconnectMeasurement.current = () => undefined
+        }
+      }
     },
     [data],
   )
@@ -793,6 +869,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   useEffect(
     () => () => {
       disconnectOutline.current()
+      disconnectMeasurement.current()
       onOutline(route, [])
       measurementGeneration.current += 1
       if (measurementFrame.current !== undefined) {
@@ -805,11 +882,16 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 
   return (
     <article
-      className={`page-frame${data.interactive ? " page-frame--interactive" : ""}${data.selectedRoute === route ? " page-frame--active" : ""}`}
+      className={`page-frame page-frame--${data.kind}${data.interactive ? " page-frame--interactive" : ""}${data.selectedRoute === route ? " page-frame--active" : ""}`}
       data-route={data.route}
       style={{ width: viewportWidth }}
     >
-      <header className="page-frame__header">{data.label}</header>
+      <header className="page-frame__header">
+        <strong>{data.label}</strong>
+        {data.preview === undefined ? null : (
+          <span>{data.preview === "authored" ? "design preview" : "automatic preview"}</span>
+        )}
+      </header>
       <iframe
         aria-label={`Preview of ${data.route}`}
         className="page-frame__preview"
@@ -838,7 +920,31 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
 })
 PageFrame.displayName = "PageFrame"
 
-const nodeTypes: NodeTypes = { page: PageFrame }
+const CatalogGroup = memo(({ data }: NodeProps<CatalogGroupNode>) => (
+  <header className="component-group" data-component-group={data.path}>
+    <div>
+      <strong>{data.label}</strong>
+      <span>{data.componentCount} components</span>
+    </div>
+    <code>{data.path === "" ? "components" : `components/${data.path}`}</code>
+  </header>
+))
+CatalogGroup.displayName = "CatalogGroup"
+
+const CatalogSurface = memo(({ data }: NodeProps<CatalogSurfaceNode>) => (
+  <div
+    aria-hidden="true"
+    className="component-catalog-surface"
+    style={{ height: data.height, width: data.width }}
+  />
+))
+CatalogSurface.displayName = "CatalogSurface"
+
+const designNodeTypes: NodeTypes = {
+  catalogGroup: CatalogGroup,
+  catalogSurface: CatalogSurface,
+  page: PageFrame,
+}
 
 const resolveColorVariables = (
   value: string,
@@ -1179,6 +1285,60 @@ const SplatpadMark = () => (
   </svg>
 )
 
+interface CanvasTheme {
+  background: string
+  dark: boolean
+}
+
+const defaultCanvasTheme: CanvasTheme = { background: "rgb(255, 255, 255)", dark: false }
+
+const opaqueRgb = (document: Document, value: string): [number, number, number] | undefined => {
+  const canvas = document.createElement("canvas")
+  canvas.width = 1
+  canvas.height = 1
+  const context = canvas.getContext("2d", { willReadFrequently: true })
+  if (context === null) {
+    return undefined
+  }
+  context.clearRect(0, 0, 1, 1)
+  context.fillStyle = value
+  context.fillRect(0, 0, 1, 1)
+  const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data
+  return alpha === 255 ? [red, green, blue] : undefined
+}
+
+const sampleRootBackground = (frame: HTMLIFrameElement): CanvasTheme => {
+  const document = frame.contentDocument
+  const frameWindow = document?.defaultView
+  if (
+    document === null ||
+    document === undefined ||
+    frameWindow === null ||
+    frameWindow === undefined
+  ) {
+    return defaultCanvasTheme
+  }
+  const candidates = [document.body, document.documentElement]
+  for (const candidate of candidates) {
+    if (candidate === null) {
+      continue
+    }
+    const background = frameWindow.getComputedStyle(candidate).backgroundColor
+    const rgb = opaqueRgb(document, background)
+    if (rgb !== undefined) {
+      const [red, green, blue] = rgb.map((channel) => {
+        const linear = channel / 255
+        return linear <= 0.03928 ? linear / 12.92 : ((linear + 0.055) / 1.055) ** 2.4
+      })
+      return {
+        background,
+        dark: red * 0.2126 + green * 0.7152 + blue * 0.0722 < 0.32,
+      }
+    }
+  }
+  return defaultCanvasTheme
+}
+
 const Designer = () => {
   const [initialSession] = useState(readDesignerSession)
   const [routes, setRoutes] = useState<RouteRecord[]>([])
@@ -1188,6 +1348,10 @@ const Designer = () => {
   const [view, setView] = useState<DesignerView>(initialSession.view ?? "pages")
   const [activeRoute, setActiveRoute] = useState<string | undefined>(initialSession.activeRoute)
   const [heights, setHeights] = useState<Record<string, number>>({})
+  const [componentSizes, setComponentSizes] = useState<
+    Record<string, { height: number; width: number }>
+  >({})
+  const [canvasTheme, setCanvasTheme] = useState(defaultCanvasTheme)
   const [error, setError] = useState<string | undefined>(undefined)
   const [tool, setTool] = useState<DesignerTool>("pan")
   const [spacePanning, setSpacePanning] = useState(false)
@@ -1196,7 +1360,7 @@ const Designer = () => {
   const [selectionGeneration, setSelectionGeneration] = useState(0)
   const [viewportOptions, setViewportOptions] = useState<ViewportOption[]>([])
   const [viewport, setViewport] = useState<ViewportCondition>("Default")
-  const flow = useRef<ReactFlowInstance<PageNode> | undefined>(undefined)
+  const flow = useRef<ReactFlowInstance<DesignNode> | undefined>(undefined)
   const iframePan = useRef<
     | {
         pointer: { x: number; y: number }
@@ -1302,8 +1466,18 @@ const Designer = () => {
     setHeights((current) => (current[route] === height ? current : { ...current, [route]: height }))
   }, [])
 
+  const onSize = useCallback((route: string, size: { height: number; width: number }): void => {
+    setComponentSizes((current) => {
+      const previous = current[route]
+      return previous?.height === size.height && previous.width === size.width
+        ? current
+        : { ...current, [route]: size }
+    })
+  }, [])
+
   const selectViewport = useCallback((nextViewport: ViewportCondition): void => {
     setHeights({})
+    setComponentSizes({})
     setViewport(nextViewport)
   }, [])
 
@@ -1376,6 +1550,7 @@ const Designer = () => {
       }
       clearSelectedElement()
       setHeights({})
+      setComponentSizes({})
       setOutlines({})
       setActiveRoute(undefined)
       fittedRoutes.current = ""
@@ -1583,26 +1758,25 @@ const Designer = () => {
     return () => cancelAnimationFrame(frame)
   }, [activeRoute, tool])
 
-  const nodes = useMemo<PageNode[]>(() => {
+  const nodes = useMemo<DesignNode[]>(() => {
     if (viewportOption === undefined) {
       return []
     }
-    const positioned = layoutDesignRoutes(
-      designItems.map(({ route }) => ({
-        route,
-        height: heights[route] ?? initialFrameHeight,
-      })),
-    )
-
-    const horizontalScale = (viewportOption.width + 120) / (frameWidth + 120)
-    return positioned.map(({ route, height, position }) => ({
+    const createFrameNode = (
+      route: string,
+      height: number,
+      width: number,
+      position: { x: number; y: number },
+    ): PageNode => ({
       id: route,
       type: "page",
       data: {
         contentHeight: height,
         inspecting: tool === "inspect",
         interactive: tool === "inspect" && !spacePanning,
+        kind: view === "components" ? "component" : "page",
         label: designItems.find((item) => item.route === route)?.label ?? route,
+        preview: designItems.find((item) => item.route === route)?.preview,
         onHeight,
         onInspect: inspectElement,
         onInvalidate: invalidateInspection,
@@ -1612,26 +1786,106 @@ const Designer = () => {
         onPanStart: startViewportPan,
         onRegisterSelectionClear: registerSelectionClear,
         onRegisterOutlineSelect: registerOutlineSelect,
+        onSize,
         route,
         selectedRoute: activeRoute,
         selectionGeneration,
-        viewportWidth: viewportOption.width,
+        viewportWidth: width,
       },
       draggable: false,
       height: height + frameHeaderHeight,
       selectable: false,
-      width: viewportOption.width,
-      position: { x: position.x * horizontalScale, y: position.y },
-    }))
+      width,
+      position,
+    })
+
+    if (view === "pages") {
+      const positioned = layoutDesignRoutes(
+        designItems.map(({ route }) => ({
+          route,
+          height: heights[route] ?? initialFrameHeight,
+        })),
+      )
+      const horizontalScale = (viewportOption.width + 120) / (frameWidth + 120)
+      return positioned.map(({ route, height, position }) =>
+        createFrameNode(route, height, viewportOption.width, {
+          x: position.x * horizontalScale,
+          y: position.y,
+        }),
+      )
+    }
+
+    const layout = layoutDesignComponents(
+      designItems.map(({ label, route }) => {
+        const measured = componentSizes[route]
+        const defaultWidth = viewport === "Default" ? 360 : Math.max(240, viewportOption.width)
+        return {
+          height: measured?.height ?? 240,
+          name: label,
+          route,
+          width:
+            viewport === "Default"
+              ? Math.min(viewportOption.width, 720, Math.max(240, measured?.width ?? defaultWidth))
+              : defaultWidth,
+        }
+      }),
+    )
+    if (layout.components.length === 0) {
+      return []
+    }
+    const surfacePadding = 48
+    const contentWidth = Math.max(
+      ...layout.components.map(({ position, width }) => position.x + width),
+      ...layout.groups.map(({ position, width }) => position.x + width),
+    )
+    const contentHeight = Math.max(
+      ...layout.components.map(({ height, position }) => position.y + height + frameHeaderHeight),
+      ...layout.groups.map(({ height, position }) => position.y + height),
+    )
+    return [
+      {
+        id: "component-catalog-surface",
+        type: "catalogSurface",
+        data: {
+          height: contentHeight + surfacePadding * 2,
+          width: contentWidth + surfacePadding * 2,
+        },
+        draggable: false,
+        height: contentHeight + surfacePadding * 2,
+        selectable: false,
+        width: contentWidth + surfacePadding * 2,
+        position: { x: -surfacePadding, y: -surfacePadding },
+        zIndex: -1,
+      } satisfies CatalogSurfaceNode,
+      ...layout.groups.map<CatalogGroupNode>((group) => ({
+        id: `component-group:${group.name || "root"}`,
+        type: "catalogGroup",
+        data: {
+          componentCount: group.componentCount,
+          label: group.label,
+          path: group.name,
+        },
+        draggable: false,
+        height: 32,
+        selectable: false,
+        width: group.width,
+        position: group.position,
+      })),
+      ...layout.components.map(({ route, height, position, width }) =>
+        createFrameNode(route, height, width, position),
+      ),
+    ]
   }, [
     endViewportPan,
     heights,
     inspectElement,
     activeRoute,
+    componentSizes,
     designItems,
     invalidateInspection,
     moveViewportPan,
     onHeight,
+    onSize,
     registerOutlineSelect,
     registerSelectionClear,
     selectionGeneration,
@@ -1640,6 +1894,7 @@ const Designer = () => {
     tool,
     updateOutline,
     viewportOption,
+    view,
   ])
 
   useEffect(() => {
@@ -1651,7 +1906,11 @@ const Designer = () => {
     }
 
     fittedRoutes.current = routeKey
-    void flow.current?.fitView({ duration: 200, padding: 0.08 })
+    if (view === "components") {
+      void flow.current?.setViewport({ x: 72, y: 72, zoom: 0.78 }, { duration: 200 })
+    } else {
+      void flow.current?.fitView({ duration: 200, padding: 0.08 })
+    }
   }, [designItems, heights, nodes, view, viewport])
 
   if (error !== undefined) {
@@ -1792,14 +2051,42 @@ const Designer = () => {
           </section>
         </aside>
 
-        <section aria-label="Design canvas" className="designer-canvas">
+        <section
+          aria-label="Design canvas"
+          className={`designer-canvas${view === "components" ? " designer-canvas--components" : ""}${canvasTheme.dark ? " designer-canvas--dark" : ""}`}
+          data-canvas-background={canvasTheme.background}
+          style={
+            view === "components"
+              ? ({ "--component-canvas": canvasTheme.background } as CSSProperties)
+              : undefined
+          }
+        >
+          {view === "components" ? (
+            <iframe
+              aria-hidden="true"
+              className="designer-canvas__background-sampler"
+              onLoad={(event) => setCanvasTheme(sampleRootBackground(event.currentTarget))}
+              src="/"
+              style={{
+                border: 0,
+                height: 1,
+                opacity: 0,
+                pointerEvents: "none",
+                position: "absolute",
+                visibility: "hidden",
+                width: 1,
+              }}
+              tabIndex={-1}
+              title=""
+            />
+          ) : null}
           <ReactFlow
             elementsSelectable={false}
-            fitView
+            fitView={view === "pages"}
             fitViewOptions={{ padding: 0.08 }}
             maxZoom={1.5}
             minZoom={0.02}
-            nodeTypes={nodeTypes}
+            nodeTypes={designNodeTypes}
             nodes={nodes}
             nodesConnectable={false}
             nodesDraggable={false}

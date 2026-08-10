@@ -84,6 +84,15 @@ html, body, #root, .designer {
   font-size: 14px;
   font-weight: 600;
 }
+.page-frame__header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.page-frame__header span {
+  margin-left: auto;
+  color: #71717a;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 .page-frame__preview {
   display: block;
   border: 0;
@@ -478,6 +487,15 @@ button, select { font: inherit; }
 .designer-routes__empty { margin: 2px 4px; color: #71717a; line-height: 1.5; }
 .designer-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #111113; }
 .designer-canvas .react-flow { position: absolute; inset: 0; }
+.designer-canvas--components { background: #111113; }
+.designer-canvas__background-sampler {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 .react-flow__pane { cursor: grab; }
 .react-flow__pane.dragging { cursor: grabbing; }
 .react-flow__node-page { border-radius: 3px; }
@@ -493,6 +511,66 @@ button, select { font: inherit; }
   color: #c4b5fd;
   font-size: 12px;
 }
+.react-flow__node-catalogGroup {
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.react-flow__node-catalogSurface {
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.component-catalog-surface {
+  border: 1px solid rgb(15 23 42 / 10%);
+  border-radius: 12px;
+  background-color: var(--component-canvas, #fff);
+  background-image: radial-gradient(rgb(100 116 139 / 20%) 1px, transparent 1px);
+  background-position: 0 0;
+  background-size: 24px 24px;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 28%);
+}
+.component-group {
+  display: flex;
+  height: 32px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  color: #334155;
+}
+.component-group > div { display: flex; align-items: baseline; gap: 8px; }
+.component-group strong { font-size: 13px; }
+.component-group span, .component-group code { color: #64748b; font-size: 10px; }
+.page-frame--component {
+  overflow: hidden;
+  border: 1px dashed rgb(100 116 139 / 48%);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.page-frame--component.page-frame--active {
+  outline: 1px dashed #8b5cf6;
+  outline-offset: 3px;
+}
+.page-frame--component .page-frame__header {
+  border-bottom: 0;
+  background: transparent;
+  color: #334155;
+}
+.page-frame--component .page-frame__header span { color: #64748b; }
+.page-frame--component .page-frame__preview { background: transparent; }
+.designer-canvas--dark .component-group { color: #f4f4f5; }
+.designer-canvas--dark .component-catalog-surface {
+  border-color: rgb(244 244 245 / 12%);
+  background-image: radial-gradient(rgb(161 161 170 / 28%) 1px, transparent 1px);
+}
+.designer-canvas--dark .component-group span,
+.designer-canvas--dark .component-group code { color: #a1a1aa; }
+.designer-canvas--dark .page-frame--component { border-color: rgb(212 212 216 / 40%); }
+.designer-canvas--dark .page-frame--component .page-frame__header {
+  color: #f4f4f5;
+}
+.designer-canvas--dark .page-frame--component .page-frame__header span { color: #a1a1aa; }
 .designer-toolbar {
   bottom: 16px;
   gap: 2px;

@@ -87,6 +87,9 @@ test("switches to the discovered component catalog", async ({ page }) => {
   await page.getByRole("button", { name: "Components", exact: true }).click()
 
   await expect(page.locator(".page-frame")).toHaveCount(13)
+  await expect(page.locator(".page-frame--component")).toHaveCount(13)
+  await expect(page.locator(".page-frame--component iframe")).toHaveCount(13)
+  await expect(page.locator('[data-component-group=""]')).toContainText("Root components")
   await expect(page.getByRole("button", { name: "button", exact: true })).toBeVisible()
   await expect(
     page.locator('.page-frame[data-route="/__splatpad/design/components/button/"]'),
@@ -97,6 +100,80 @@ test("switches to the discovered component catalog", async ({ page }) => {
       .getByRole("button", { name: "Order now" }),
   ).toBeVisible()
   await expect(page.locator(".designer-footer")).toContainText("13 components")
+  await expect(page.locator(".page-frame--component").first()).toHaveCSS(
+    "border-top-style",
+    "dashed",
+  )
+  await expect(page.locator(".page-frame--component").first()).toHaveCSS("box-shadow", "none")
+  await expect
+    .poll(() =>
+      page.locator(".page-frame--component").evaluateAll((frames) =>
+        frames.every((frame) => {
+          const width = (frame as HTMLElement).offsetWidth
+          return width >= 239 && width <= 721
+        }),
+      ),
+    )
+    .toBe(true)
+  const viewportControl = page.getByRole("combobox", { name: "Viewport breakpoint" })
+  await viewportControl.selectOption("md")
+  await expect
+    .poll(() =>
+      page
+        .locator(".page-frame--component iframe")
+        .evaluateAll((frames) =>
+          frames.every((frame) => (frame as HTMLElement).offsetWidth === 768),
+        ),
+    )
+    .toBe(true)
+  await viewportControl.selectOption("Default")
+
+  const alertFrame = page.locator('.page-frame[data-route="/__splatpad/design/components/alert/"]')
+  const initialAlertHeight = await alertFrame.evaluate(
+    (frame) => (frame as HTMLElement).offsetHeight,
+  )
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("body")
+    .evaluate((body) => {
+      const spacer = body.ownerDocument.createElement("div")
+      spacer.dataset.measurementSpacer = ""
+      spacer.style.height = "600px"
+      body.append(spacer)
+    })
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeGreaterThan(initialAlertHeight + 500)
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("[data-measurement-spacer]")
+    .evaluate((spacer) => spacer.remove())
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeLessThan(initialAlertHeight + 10)
+  await expect
+    .poll(() =>
+      page.locator(".designer-canvas").evaluate((canvas) => {
+        const sampler = canvas.querySelector<HTMLIFrameElement>(
+          ".designer-canvas__background-sampler",
+        )
+        const surface = canvas.querySelector<HTMLElement>(".component-catalog-surface")
+        const body = sampler?.contentDocument?.body
+        if (body === null || body === undefined || surface === null) {
+          return false
+        }
+        return (
+          getComputedStyle(surface).backgroundColor ===
+          sampler?.contentWindow?.getComputedStyle(body).backgroundColor
+        )
+      }),
+    )
+    .toBe(true)
+  await expect(page.locator(".designer-canvas")).not.toHaveClass(/designer-canvas--dark/)
+  await expect(page.locator(".designer-canvas")).toHaveCSS("background-color", "rgb(17, 17, 19)")
+  await expect(
+    page.frameLocator('iframe[title="/__splatpad/design/components/button/"]').locator("html"),
+  ).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
 
   await page.getByRole("button", { name: "button", exact: true }).click()
   await page.reload()
@@ -127,6 +204,18 @@ test("switches to the discovered component catalog", async ({ page }) => {
     await expect(page.locator(".designer-header__location code")).toHaveText("button")
   } finally {
     await fs.writeFile(previewFile, originalPreview)
+  }
+
+  const groupedComponent = path.join(siteRoot, "components", "forms", "compact-input.liquid")
+  await fs.mkdir(path.dirname(groupedComponent), { recursive: true })
+  await fs.writeFile(groupedComponent, '<input aria-label="Compact input">')
+  try {
+    await expect(page.locator('[data-component-group="forms"]')).toContainText("forms")
+    await expect(
+      page.locator('.page-frame[data-route="/__splatpad/design/components/forms/compact-input/"]'),
+    ).toHaveCount(1)
+  } finally {
+    await fs.rm(path.dirname(groupedComponent), { recursive: true })
   }
 })
 
