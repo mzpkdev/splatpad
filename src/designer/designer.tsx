@@ -23,12 +23,46 @@ interface RouteRecord {
   route: string
 }
 
+interface ComponentRecord {
+  name: string
+  preview: "authored" | "automatic"
+  route: string
+}
+
 interface RouteResponse {
+  components: ComponentRecord[]
   routes: RouteRecord[]
   siteName: string
 }
 
 type DesignerTool = "inspect" | "pan"
+type DesignerView = "components" | "pages"
+
+interface DesignItem {
+  depth: number
+  label: string
+  preview?: ComponentRecord["preview"]
+  route: string
+}
+
+interface DesignerSession {
+  activeRoute?: string
+  view?: DesignerView
+}
+
+const designerSessionKey = "splatpad:designer-session"
+
+const readDesignerSession = (): DesignerSession => {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(designerSessionKey) ?? "{}") as DesignerSession
+    return {
+      activeRoute: typeof value.activeRoute === "string" ? value.activeRoute : undefined,
+      view: value.view === "components" ? "components" : "pages",
+    }
+  } catch {
+    return { view: "pages" }
+  }
+}
 
 interface InspectedElement {
   className: string
@@ -52,6 +86,7 @@ interface PageNodeData extends Record<string, unknown> {
   contentHeight: number
   inspecting: boolean
   interactive: boolean
+  label: string
   onHeight: (route: string, height: number) => void
   onInspect: (inspection: InspectedElement, select?: () => void) => void
   onInvalidate: (route: string) => void
@@ -774,7 +809,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       data-route={data.route}
       style={{ width: viewportWidth }}
     >
-      <header className="page-frame__header">{data.route}</header>
+      <header className="page-frame__header">{data.label}</header>
       <iframe
         aria-label={`Preview of ${data.route}`}
         className="page-frame__preview"
@@ -1145,9 +1180,13 @@ const SplatpadMark = () => (
 )
 
 const Designer = () => {
+  const [initialSession] = useState(readDesignerSession)
   const [routes, setRoutes] = useState<RouteRecord[]>([])
+  const [components, setComponents] = useState<ComponentRecord[]>([])
+  const [catalogLoaded, setCatalogLoaded] = useState(false)
   const [siteName, setSiteName] = useState("Splatpad")
-  const [activeRoute, setActiveRoute] = useState<string | undefined>()
+  const [view, setView] = useState<DesignerView>(initialSession.view ?? "pages")
+  const [activeRoute, setActiveRoute] = useState<string | undefined>(initialSession.activeRoute)
   const [heights, setHeights] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | undefined>(undefined)
   const [tool, setTool] = useState<DesignerTool>("pan")
@@ -1170,6 +1209,31 @@ const Designer = () => {
   const outlineSelectors = useRef(new Map<string, (element: Element) => void>())
   const pendingOutlineSelection = useRef<{ element: Element; route: string } | undefined>(undefined)
   const viewportOption = viewportOptions.find(({ condition }) => condition === viewport)
+  const designItems = useMemo<DesignItem[]>(
+    () =>
+      view === "pages"
+        ? routes.map(({ route }) => ({
+            depth: route === "/" ? 0 : Math.max(0, route.split("/").filter(Boolean).length - 1),
+            label: route,
+            route,
+          }))
+        : components.map(({ name, preview, route }) => ({
+            depth: Math.max(0, name.split("/").length - 1),
+            label: name,
+            preview,
+            route,
+          })),
+    [components, routes, view],
+  )
+  const activeItem = designItems.find(({ route }) => route === activeRoute)
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(designerSessionKey, JSON.stringify({ activeRoute, view }))
+    } catch {
+      // The designer still works when browser storage is unavailable.
+    }
+  }, [activeRoute, view])
 
   useEffect(() => {
     let current = true
@@ -1202,6 +1266,15 @@ const Designer = () => {
               ? current
               : payload.routes,
           )
+          setComponents((current) =>
+            current.map(({ name, preview, route }) => `${name}:${preview}:${route}`).join("\n") ===
+            payload.components
+              .map(({ name, preview, route }) => `${name}:${preview}:${route}`)
+              .join("\n")
+              ? current
+              : payload.components,
+          )
+          setCatalogLoaded(true)
           setError(undefined)
         }
       } catch (reason: unknown) {
@@ -1296,6 +1369,21 @@ const Designer = () => {
     [clearSelectedElement],
   )
 
+  const selectView = useCallback(
+    (nextView: DesignerView): void => {
+      if (nextView === view) {
+        return
+      }
+      clearSelectedElement()
+      setHeights({})
+      setOutlines({})
+      setActiveRoute(undefined)
+      fittedRoutes.current = ""
+      setView(nextView)
+    },
+    [clearSelectedElement, view],
+  )
+
   const invalidateInspection = useCallback((route: string): void => {
     setInspection((current) => (current?.route === route ? undefined : current))
     setSelectionGeneration((current) => current + 1)
@@ -1388,16 +1476,19 @@ const Designer = () => {
   }, [activateTool, clearSelectedElement, tool])
 
   useEffect(() => {
-    if (inspection !== undefined && !routes.some(({ route }) => route === inspection.route)) {
+    if (inspection !== undefined && !designItems.some(({ route }) => route === inspection.route)) {
       clearSelectedElement()
     }
-  }, [clearSelectedElement, inspection, routes])
+  }, [clearSelectedElement, designItems, inspection])
 
   useEffect(() => {
-    if (activeRoute === undefined || !routes.some(({ route }) => route === activeRoute)) {
-      setActiveRoute(routes[0]?.route)
+    if (!catalogLoaded) {
+      return
     }
-  }, [activeRoute, routes])
+    if (activeRoute === undefined || !designItems.some(({ route }) => route === activeRoute)) {
+      setActiveRoute(designItems[0]?.route)
+    }
+  }, [activeRoute, catalogLoaded, designItems])
 
   const focusRoute = useCallback(
     (route: string): void => {
@@ -1497,7 +1588,7 @@ const Designer = () => {
       return []
     }
     const positioned = layoutDesignRoutes(
-      routes.map(({ route }) => ({
+      designItems.map(({ route }) => ({
         route,
         height: heights[route] ?? initialFrameHeight,
       })),
@@ -1511,6 +1602,7 @@ const Designer = () => {
         contentHeight: height,
         inspecting: tool === "inspect",
         interactive: tool === "inspect" && !spacePanning,
+        label: designItems.find((item) => item.route === route)?.label ?? route,
         onHeight,
         onInspect: inspectElement,
         onInvalidate: invalidateInspection,
@@ -1536,10 +1628,10 @@ const Designer = () => {
     heights,
     inspectElement,
     activeRoute,
+    designItems,
     invalidateInspection,
     moveViewportPan,
     onHeight,
-    routes,
     registerOutlineSelect,
     registerSelectionClear,
     selectionGeneration,
@@ -1551,8 +1643,8 @@ const Designer = () => {
   ])
 
   useEffect(() => {
-    const routeKey = `${viewport}\n${routes.map(({ route }) => route).join("\n")}`
-    const allFramesMeasured = routes.every(({ route }) => heights[route] !== undefined)
+    const routeKey = `${view}\n${viewport}\n${designItems.map(({ route }) => route).join("\n")}`
+    const allFramesMeasured = designItems.every(({ route }) => heights[route] !== undefined)
 
     if (!allFramesMeasured || fittedRoutes.current === routeKey) {
       return
@@ -1560,7 +1652,7 @@ const Designer = () => {
 
     fittedRoutes.current = routeKey
     void flow.current?.fitView({ duration: 200, padding: 0.08 })
-  }, [heights, nodes, routes, viewport])
+  }, [designItems, heights, nodes, view, viewport])
 
   if (error !== undefined) {
     return <main className="designer-state designer-state--error">{error}</main>
@@ -1580,7 +1672,7 @@ const Designer = () => {
         </div>
         <div className="designer-header__location">
           <strong>{siteName}</strong>
-          <code>{activeRoute ?? "/"}</code>
+          <code>{activeItem?.label ?? (view === "pages" ? "/" : "Components")}</code>
         </div>
         <label className="designer-viewport-control">
           <span>Viewport</span>
@@ -1601,28 +1693,60 @@ const Designer = () => {
 
       <div className="designer-workspace">
         <aside aria-label="Site outline" className="designer-routes">
+          <nav aria-label="Design views" className="designer-routes__views">
+            <button
+              aria-label="Pages"
+              aria-pressed={view === "pages"}
+              onClick={() => selectView("pages")}
+              type="button"
+            >
+              <File aria-hidden="true" />
+              <span>Pages</span>
+              <strong>{routes.length}</strong>
+            </button>
+            <button
+              aria-label="Components"
+              aria-pressed={view === "components"}
+              onClick={() => selectView("components")}
+              type="button"
+            >
+              <Box aria-hidden="true" />
+              <span>Components</span>
+              <strong>{components.length}</strong>
+            </button>
+          </nav>
           <section className="designer-routes__section">
             <header>
-              <h2>Pages</h2>
-              <span>{routes.length}</span>
+              <h2>{view === "pages" ? "Pages" : "Components"}</h2>
+              <span>{designItems.length}</span>
             </header>
-            <nav aria-label="Site pages">
-              {routes.map(({ route }) => {
-                const depth =
-                  route === "/" ? 0 : Math.max(0, route.split("/").filter(Boolean).length - 1)
-                return (
-                  <button
-                    aria-current={route === activeRoute ? "page" : undefined}
-                    key={route}
-                    onClick={() => focusRoute(route)}
-                    style={{ paddingLeft: 12 + depth * 14 }}
-                    type="button"
-                  >
-                    {depth > 0 ? <ChevronRight aria-hidden="true" /> : <File aria-hidden="true" />}
-                    <span>{route}</span>
-                  </button>
-                )
-              })}
+            <nav aria-label={view === "pages" ? "Site pages" : "Site components"}>
+              {designItems.map(({ depth, label, preview, route }) => (
+                <button
+                  aria-current={route === activeRoute ? "page" : undefined}
+                  key={route}
+                  onClick={() => focusRoute(route)}
+                  style={{ paddingLeft: 12 + depth * 14 }}
+                  title={
+                    preview === undefined
+                      ? label
+                      : `${label} (${preview === "authored" ? "design preview" : "automatic preview"})`
+                  }
+                  type="button"
+                >
+                  {depth > 0 ? (
+                    <ChevronRight aria-hidden="true" />
+                  ) : view === "pages" ? (
+                    <File aria-hidden="true" />
+                  ) : (
+                    <Box aria-hidden="true" />
+                  )}
+                  <span>{label}</span>
+                </button>
+              ))}
+              {designItems.length === 0 ? (
+                <p className="designer-routes__empty">No components found.</p>
+              ) : null}
             </nav>
           </section>
           <section className="designer-routes__section designer-outline">
@@ -1741,8 +1865,10 @@ const Designer = () => {
         <span className="designer-footer__status">
           <i aria-hidden="true" /> Ready
         </span>
-        <span>{routes.length} pages</span>
-        <code>{activeRoute ?? "/"}</code>
+        <span>
+          {designItems.length} {view}
+        </span>
+        <code>{activeItem?.label ?? (view === "pages" ? "/" : "Components")}</code>
         <span className="designer-footer__viewport">
           {viewportOption.label} · {viewportOption.width}px
         </span>

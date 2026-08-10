@@ -79,6 +79,73 @@ describe("site dev server", () => {
     expect(stylesheet.status).toBe(200)
     expect(await stylesheet.text()).toContain(".react-flow")
     expect(await manifest.json()).toEqual({
+      components: [
+        {
+          name: "alert",
+          preview: "authored",
+          route: "/__splatpad/design/components/alert/",
+        },
+        {
+          name: "badge",
+          preview: "authored",
+          route: "/__splatpad/design/components/badge/",
+        },
+        {
+          name: "button",
+          preview: "authored",
+          route: "/__splatpad/design/components/button/",
+        },
+        {
+          name: "card",
+          preview: "authored",
+          route: "/__splatpad/design/components/card/",
+        },
+        {
+          name: "checkbox",
+          preview: "authored",
+          route: "/__splatpad/design/components/checkbox/",
+        },
+        {
+          name: "field",
+          preview: "authored",
+          route: "/__splatpad/design/components/field/",
+        },
+        {
+          name: "input",
+          preview: "authored",
+          route: "/__splatpad/design/components/input/",
+        },
+        {
+          name: "link-button",
+          preview: "authored",
+          route: "/__splatpad/design/components/link-button/",
+        },
+        {
+          name: "menu-card",
+          preview: "authored",
+          route: "/__splatpad/design/components/menu-card/",
+        },
+        {
+          name: "menu-mark",
+          preview: "authored",
+          route: "/__splatpad/design/components/menu-mark/",
+        },
+        {
+          name: "nav-link",
+          preview: "authored",
+          route: "/__splatpad/design/components/nav-link/",
+        },
+        {
+          name: "select",
+          preview: "authored",
+          route: "/__splatpad/design/components/select/",
+        },
+        {
+          name: "textarea",
+          preview: "authored",
+          route: "/__splatpad/design/components/textarea/",
+        },
+      ],
       routes: [
         { route: "/" },
         { route: "/journal/" },
@@ -90,6 +157,37 @@ describe("site dev server", () => {
       ],
       siteName: path.basename(siteRoot),
     })
+  })
+
+  it("renders authored, automatic, and missing-data component previews", async () => {
+    const button = await fetch(`${baseUrl}/__splatpad/design/components/button/`)
+    expect(button.status).toBe(200)
+    expect(await button.text()).toContain("Order now")
+
+    const automaticFile = path.join(siteRoot, "components", "automatic.liquid")
+    const brokenFile = path.join(siteRoot, "components", "broken.liquid")
+    const missingFile = path.join(siteRoot, "components", "missing-data.liquid")
+    await fs.writeFile(automaticFile, "<strong>Automatic preview</strong>")
+    await fs.writeFile(brokenFile, "{% if %}")
+    await fs.writeFile(missingFile, "<strong>{{ required_value }}</strong>")
+
+    try {
+      const automatic = await fetch(`${baseUrl}/__splatpad/design/components/automatic/`)
+      expect(automatic.status).toBe(200)
+      expect(await automatic.text()).toContain("Automatic preview")
+
+      const missing = await fetch(`${baseUrl}/__splatpad/design/components/missing-data/`)
+      expect(missing.status).toBe(200)
+      const missingHtml = await missing.text()
+      expect(missingHtml).toContain("missing-data needs preview data")
+      expect(missingHtml).toContain("components/missing-data.design.liquid")
+
+      const broken = await fetch(`${baseUrl}/__splatpad/design/components/broken/`)
+      expect(broken.status).toBe(500)
+      expect(await broken.text()).toContain("ErrorOverlay")
+    } finally {
+      await Promise.all([fs.rm(automaticFile), fs.rm(brokenFile), fs.rm(missingFile)])
+    }
   })
 
   it("redirects a discovered slashless route to its canonical route", async () => {

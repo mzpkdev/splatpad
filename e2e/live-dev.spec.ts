@@ -82,6 +82,54 @@ test("renders every route and reloads the board when routes change", async ({ pa
   expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
 })
 
+test("switches to the discovered component catalog", async ({ page }) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await page.getByRole("button", { name: "Components", exact: true }).click()
+
+  await expect(page.locator(".page-frame")).toHaveCount(13)
+  await expect(page.getByRole("button", { name: "button", exact: true })).toBeVisible()
+  await expect(
+    page.locator('.page-frame[data-route="/__splatpad/design/components/button/"]'),
+  ).toBeVisible()
+  await expect(
+    page
+      .frameLocator('iframe[title="/__splatpad/design/components/button/"]')
+      .getByRole("button", { name: "Order now" }),
+  ).toBeVisible()
+  await expect(page.locator(".designer-footer")).toContainText("13 components")
+
+  await page.getByRole("button", { name: "button", exact: true }).click()
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Components", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await expect(page.locator(".designer-header__location code")).toHaveText("button")
+  await expect(
+    page
+      .frameLocator('iframe[title="/__splatpad/design/components/button/"]')
+      .getByRole("button", { name: "Order now" }),
+  ).toBeVisible()
+
+  const previewFile = path.join(siteRoot, "components", "button.design.liquid")
+  const originalPreview = await fs.readFile(previewFile, "utf8")
+  await fs.writeFile(previewFile, `${originalPreview}\n<p>Reload marker</p>\n`)
+  try {
+    await expect(
+      page
+        .frameLocator('iframe[title="/__splatpad/design/components/button/"]')
+        .getByText("Reload marker"),
+    ).toBeVisible()
+    await expect(page.getByRole("button", { name: "Components", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await expect(page.locator(".designer-header__location code")).toHaveText("button")
+  } finally {
+    await fs.writeFile(previewFile, originalPreview)
+  }
+})
+
 test("focuses a real page from the site outline without changing the canvas shell", async ({
   page,
 }) => {

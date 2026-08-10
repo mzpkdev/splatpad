@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import * as path from "node:path"
 import * as url from "node:url"
 import type { Plugin } from "vite"
+import { discoverComponentPreviews } from "../core/component-previews"
 import { discoverSiteRoutes } from "../core/site-routes"
 
 export const designPath = "/__splatpad/design/"
@@ -394,6 +395,32 @@ button, select { font: inherit; }
   border-right: 1px solid #3f3f46;
   background: #1c1c1f;
 }
+.designer-routes .designer-routes__views {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid #3f3f46;
+}
+.designer-routes__views button {
+  justify-content: center;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  background: #18181b;
+}
+.designer-routes__views button[aria-pressed="true"] {
+  border-color: #7c3aed;
+  background: rgb(124 58 237 / 18%);
+  color: #ddd6fe;
+}
+.designer-routes__views button strong {
+  min-width: 15px;
+  margin-left: auto;
+  color: #71717a;
+  font-size: 9px;
+  text-align: right;
+}
+.designer-routes__views button[aria-pressed="true"] strong { color: #c4b5fd; }
 .designer-routes__section > header {
   display: flex;
   height: 40px;
@@ -448,6 +475,7 @@ button, select { font: inherit; }
 .designer-outline button[data-outline-kind="text"] svg { color: #a1a1aa; }
 .designer-outline [role="tree"] { display: grid; min-width: 0; gap: 2px; }
 .designer-routes button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.designer-routes__empty { margin: 2px 4px; color: #71717a; line-height: 1.5; }
 .designer-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #111113; }
 .designer-canvas .react-flow { position: absolute; inset: 0; }
 .react-flow__pane { cursor: grab; }
@@ -737,13 +765,18 @@ export const designerPlugin = ({
         }
         if (requestUrl.pathname === designRoutesPath) {
           const routes = discoverSiteRoutes(root).map(({ route }) => ({ route }))
+          const components = discoverComponentPreviews(root).map(({ name, preview, route }) => ({
+            name,
+            preview: preview === undefined ? "automatic" : "authored",
+            route,
+          }))
           response.statusCode = 200
           response.setHeader("Cache-Control", "no-cache")
           response.setHeader("Content-Type", "application/json; charset=utf-8")
           response.end(
             request.method === "HEAD"
               ? ""
-              : JSON.stringify({ routes, siteName: path.basename(root) }),
+              : JSON.stringify({ components, routes, siteName: path.basename(root) }),
           )
           return
         }
