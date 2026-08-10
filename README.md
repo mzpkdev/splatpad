@@ -46,6 +46,14 @@ passed as an explicit prop. It cannot read other variables from its caller.
 Slot bodies still evaluate in the caller's scope. Components can invoke other
 components, and a named `yield` renders nothing when its slot was not supplied.
 
+`splatpad design` discovers every component recursively and adds it to the
+Components view. A component that renders without props gets an automatic
+preview. For components that need props or slots, add a companion design
+template such as `components/button.design.liquid` next to
+`components/button.liquid`. The design template can invoke the component more
+than once to show its variants. It receives the same `data/site.json` values as
+a page, and it never becomes a site route or build output.
+
 The example site keeps its component catalog small and live. Every primitive is
 rendered on a real route:
 
@@ -66,11 +74,12 @@ development server without a restart. Broken Liquid or JSON is shown through
 Vite's error overlay and reloads after it is fixed. `data/site.json` supplies
 render data; its optional `pages` keys do not create or remove routes.
 
-`splatpad design` serves a read-only overview at `/__splatpad/design/`. Every
-route stays loaded in a non-interactive 1440-pixel-wide frame whose height tracks
-the rendered document. The canvas supports pan and zoom, and lays routes out as
-a recursive matrix: nested paths move right while sibling branches stack down.
-Route changes reload the board automatically.
+`splatpad design` serves a read-only overview at `/__splatpad/design/`. Its Pages
+and Components views keep each preview loaded in a non-interactive frame whose
+height tracks the rendered document. The canvas supports pan and zoom, and lays
+previews out as a recursive matrix: nested paths move right while siblings stack
+down. Page, component, and design-template changes reload the board
+automatically.
 
 Load UnoCSS from its generated stylesheet in the document head with
 `<link rel="stylesheet" href="/__uno.css">`. This keeps the generated CSS

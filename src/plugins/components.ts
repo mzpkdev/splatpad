@@ -14,6 +14,10 @@ import {
 
 const componentSlotsRegister = "splatpad:component-slots"
 
+interface ComponentDialectOptions {
+  annotateComponents?: boolean
+}
+
 type ComponentSlot = {
   context: Context
   html?: string
@@ -138,7 +142,10 @@ class YieldTag extends Tag {
   }
 }
 
-const createComponentTag = (componentEngine: Liquid) =>
+const createComponentTag = (
+  componentEngine: Liquid,
+  { annotateComponents = false }: ComponentDialectOptions,
+) =>
   class ComponentTag extends Tag {
     private readonly componentName: string
     private readonly hash: Hash
@@ -217,7 +224,13 @@ const createComponentTag = (componentEngine: Liquid) =>
       const templates = ctx.sync
         ? componentEngine.parseFileSync(this.componentName)
         : ((yield componentEngine.parseFile(this.componentName)) as Template[])
+      if (annotateComponents) {
+        emitter.write(`<!--splatpad-component:start:${encodeURIComponent(this.componentName)}-->`)
+      }
       yield componentEngine.renderer.renderTemplates(templates, childCtx, emitter)
+      if (annotateComponents) {
+        emitter.write(`<!--splatpad-component:end:${encodeURIComponent(this.componentName)}-->`)
+      }
     }
 
     *children(partials: boolean): Generator<unknown, Template[]> {
@@ -235,13 +248,17 @@ const createComponentTag = (componentEngine: Liquid) =>
     }
   }
 
-export const registerComponentDialect = (engine: Liquid, componentEngine: Liquid): void => {
-  engine.registerTag("component", createComponentTag(componentEngine))
+export const registerComponentDialect = (
+  engine: Liquid,
+  componentEngine: Liquid,
+  options: ComponentDialectOptions = {},
+): void => {
+  engine.registerTag("component", createComponentTag(componentEngine, options))
   engine.registerTag("slot", SlotOutsideComponentTag)
   engine.registerTag("yield", YieldTag)
 
   if (componentEngine !== engine) {
-    componentEngine.registerTag("component", createComponentTag(componentEngine))
+    componentEngine.registerTag("component", createComponentTag(componentEngine, options))
     componentEngine.registerTag("slot", SlotOutsideComponentTag)
     componentEngine.registerTag("yield", YieldTag)
   }

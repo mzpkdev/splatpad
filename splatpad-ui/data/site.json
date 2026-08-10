@@ -5,8 +5,8 @@
   },
   "pages": {
     "/": {
-      "title": "Dashboard Design",
-      "description": "A polished static workspace for designing the Northstar dashboard."
+      "title": "Component Gallery",
+      "description": "A compact specimen gallery for browsing and inspecting Liquid components."
     }
   }
 }

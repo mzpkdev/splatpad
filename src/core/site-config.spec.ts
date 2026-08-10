@@ -73,6 +73,7 @@ describe("createSiteConfig", () => {
       },
     })
     expect(mocks.liquidPlugin).toHaveBeenCalledWith({
+      design: false,
       root: "/sites/example",
       routes: mocks.routes,
     })
@@ -100,6 +101,11 @@ describe("createSiteConfig", () => {
         { name: "unocss" },
       ])
       expect(mocks.designerPlugin).toHaveBeenCalledWith({ root: "/sites/example" })
+      expect(mocks.liquidPlugin).toHaveBeenCalledWith({
+        design: true,
+        root: "/sites/example",
+        routes: mocks.routes,
+      })
     })
   })
 

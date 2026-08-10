@@ -1,460 +1,230 @@
 {% layout 'base' %}
 
 {% block content %}
-  <main class="flex h-screen flex-col overflow-hidden bg-[#111113] text-[11px] text-zinc-200">
-    <header class="flex h-12 shrink-0 items-center border-b border-zinc-700 bg-[#18181b] text-white shadow-[0_1px_8px_rgba(0,0,0,0.35)]" aria-label="Editor header">
-      <div class="flex h-full w-12 items-center justify-center bg-[#7c3aed]">
+  <main class="flex h-screen flex-col overflow-hidden bg-[#101012] text-[11px] text-zinc-200">
+    <header class="flex h-12 shrink-0 items-center border-b border-zinc-700/80 bg-[#18181b] text-white shadow-[0_1px_8px_rgba(0,0,0,0.3)]" aria-label="Editor header">
+      <div class="flex h-full w-12 items-center justify-center bg-violet-600">
         <img class="h-5 w-5" src="/splatpad.svg" alt="Splatpad">
       </div>
-
-      <div class="min-w-0 px-3 text-[12px] font-medium text-zinc-300" aria-label="Current route">
-        <span class="text-zinc-400">splatpad-ui</span>
-        <span class="ml-2 rounded bg-violet-500/15 px-1.5 py-0.5 font-mono text-[10px] text-violet-300">/</span>
+      <div class="flex min-w-0 items-center gap-2 px-3 text-[12px] font-medium">
+        <span class="text-zinc-400">example</span>
+        <svg class="h-3 w-3 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+        <span>Components</span>
+        <span class="rounded-full bg-violet-500/15 px-2 py-0.5 font-mono text-[9px] font-semibold text-violet-300">10</span>
       </div>
-
       <div class="ml-auto flex h-full items-center gap-2 px-3">
-        <div class="hidden items-center -space-x-1.5 sm:flex" aria-label="Collaborators">
-          <span class="grid h-6 w-6 place-items-center rounded-full border-2 border-[#18181b] bg-amber-300 text-[9px] font-bold text-amber-900">AK</span>
-          <span class="grid h-6 w-6 place-items-center rounded-full border-2 border-[#18181b] bg-sky-300 text-[9px] font-bold text-sky-900">MJ</span>
-        </div>
-        <span class="rounded-md bg-[#7c3aed] px-3 py-1.5 text-[11px] font-semibold shadow-sm">Share</span>
-        <span class="grid h-7 w-7 place-items-center rounded" title="Present" aria-hidden="true">
-          <svg class="lucide lucide-play h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>
-        </span>
+        <button class="grid h-7 w-7 place-items-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" title="Search">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </button>
+        <span class="h-4 w-px bg-zinc-700"></span>
+        <span class="rounded-md bg-violet-600 px-3 py-1.5 text-[11px] font-semibold shadow-sm">Share</span>
       </div>
     </header>
 
     <div class="flex min-h-0 flex-1">
-      <aside class="flex w-12 shrink-0 flex-col items-center border-r border-zinc-700 bg-[#18181b] py-2" aria-label="Design tools">
-        <span class="grid h-9 w-9 place-items-center rounded-md bg-[#7c3aed] text-white shadow-sm" title="Move (V)" aria-hidden="true">
-          <svg class="lucide lucide-mouse-pointer-2 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/></svg>
+      <aside class="flex w-12 shrink-0 flex-col items-center border-r border-zinc-700/80 bg-[#18181b] py-2" aria-label="Design tools">
+        <span class="grid h-9 w-9 place-items-center rounded-md bg-violet-600 text-white" title="Move">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.04 4.69a.5.5 0 0 1 .65-.65l16 6.5a.5.5 0 0 1-.06.95l-6.13 1.58A2 2 0 0 0 13.06 14.5l-1.58 6.13a.5.5 0 0 1-.95.06z"/></svg>
         </span>
-        <span class="mt-1 grid h-9 w-9 place-items-center rounded-md text-zinc-400" title="Text (T)" aria-hidden="true">
-          <svg class="lucide lucide-type h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>
+        <span class="mt-1 grid h-9 w-9 place-items-center rounded-md text-zinc-500" title="Inspect">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3a2 2 0 0 0-2 2v4m16-6a2 2 0 0 1 2 2v4M5 21a2 2 0 0 1-2-2v-4m16 6a2 2 0 0 0 2-2v-4"/><circle cx="12" cy="12" r="3"/></svg>
         </span>
-        <span class="mt-1 grid h-9 w-9 place-items-center rounded-md text-zinc-400" title="Comment (C)" aria-hidden="true">
-          <svg class="lucide lucide-message-square h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></svg>
-        </span>
-        <div class="mt-auto flex flex-col items-center gap-1">
-          <span class="grid h-9 w-9 place-items-center rounded-md text-zinc-400" title="Resources" aria-hidden="true">
-            <svg class="lucide lucide-layout-grid h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
-          </span>
-          <span class="grid h-9 w-9 place-items-center rounded-md text-zinc-400" title="Help" aria-hidden="true">
-            <svg class="lucide lucide-circle-question-mark h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+        <div class="mt-auto">
+          <span class="grid h-9 w-9 place-items-center rounded-md text-zinc-500" title="Help">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg>
           </span>
         </div>
       </aside>
 
-      <aside class="hidden w-64 shrink-0 flex-col overflow-hidden border-r border-zinc-700 bg-[#1c1c1f] lg:flex" aria-label="Site outline">
-        <div class="flex h-10 shrink-0 items-center border-b border-zinc-700 px-3">
-          <h2 class="font-semibold">Site outline</h2>
+      <aside class="hidden w-56 shrink-0 flex-col border-r border-zinc-700/80 bg-[#1b1b1e] md:flex" aria-label="Project navigator">
+        <div class="grid h-10 shrink-0 grid-cols-2 border-b border-zinc-700/80 px-2 pt-1">
+          <button class="border-b-2 border-transparent text-zinc-500">Pages</button>
+          <button class="border-b-2 border-violet-500 font-semibold text-zinc-100">Components</button>
         </div>
+        <div class="p-2">
+          <label class="flex h-8 items-center gap-2 rounded-md border border-zinc-700 bg-[#151517] px-2 text-zinc-500">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <span>Find components</span>
+            <span class="ml-auto rounded border border-zinc-700 px-1 font-mono text-[9px]">⌘K</span>
+          </label>
+        </div>
+        <nav class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="Component groups">
+          <div class="mb-1 flex h-7 items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+            Actions
+            <span class="ml-auto font-mono font-normal">3</span>
+          </div>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md bg-violet-500/15 px-2 font-medium text-violet-200" aria-current="true">
+            <span class="grid h-4 w-4 place-items-center rounded border border-violet-400/50 bg-violet-400/15 text-[9px]">◇</span> Button
+            <span class="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+          </button>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Icon button</button>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Link</button>
 
-        <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <section class="border-b border-zinc-700 px-2 py-2.5" aria-labelledby="screens-heading">
-            <h3 id="screens-heading" class="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-400">Screens</h3>
-            <ul class="space-y-0.5" role="list">
-              <li class="flex h-7 min-w-0 items-center gap-1.5 rounded bg-violet-500/15 px-2 font-medium text-violet-200" aria-current="page">
-                <svg class="lucide lucide-file h-3.5 w-3.5 shrink-0 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></svg>
-                <span>/</span>
-              </li>
-              <li class="flex h-7 min-w-0 items-center gap-1.5 rounded px-2 text-zinc-300">
-                <svg class="lucide lucide-file h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></svg>
-                <span>/analytics/</span>
-              </li>
-              <li class="flex h-7 min-w-0 items-center gap-1.5 rounded px-2 text-zinc-300">
-                <svg class="lucide lucide-file h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></svg>
-                <span>/transactions/</span>
-              </li>
-              <li class="flex h-7 min-w-0 items-center gap-1.5 rounded px-2 text-zinc-300">
-                <svg class="lucide lucide-file h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></svg>
-                <span>/customers/</span>
-              </li>
-            </ul>
-          </section>
+          <div class="mb-1 mt-3 flex h-7 items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+            Forms
+            <span class="ml-auto font-mono font-normal">3</span>
+          </div>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Input</button>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Select</button>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Checkbox</button>
 
-          <section class="py-2.5" aria-labelledby="outline-heading">
-            <h3 id="outline-heading" class="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-400">Outline</h3>
-            <ul class="px-2" role="list">
-              <li>
-                <div class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-200">
-                  <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1"/><rect x="11" y="11" width="6" height="5" rx="1"/><path d="M6 9v4h5"/></svg>
-                  <span class="min-w-0 truncate">Northstar dashboard</span>
-                </div>
-                <ul class="ml-2.5 border-l border-zinc-700 pl-1.5" role="list">
-                  <li>
-                    <div class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-200">
-                      <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1"/><rect x="11" y="11" width="6" height="5" rx="1"/><path d="M6 9v4h5"/></svg>
-                      <span class="min-w-0 truncate">Primary navigation</span>
-                    </div>
-                    <ul class="ml-2.5 border-l border-zinc-700 pl-1.5" role="list">
-                      <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                        <svg class="lucide lucide-image h-3.5 w-3.5 shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                        <span class="min-w-0 truncate">Northstar mark</span>
-                      </li>
-                      <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                        <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                        <span class="min-w-0 truncate">Overview</span>
-                      </li>
-                      <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                        <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                        <span class="min-w-0 truncate">Analytics</span>
-                      </li>
-                      <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                        <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                        <span class="min-w-0 truncate">Transactions</span>
-                      </li>
-                      <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                        <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                        <span class="min-w-0 truncate">Customers</span>
-                      </li>
-                    </ul>
-                  </li>
-                  <li>
-                    <div class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-200">
-                      <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1"/><rect x="11" y="11" width="6" height="5" rx="1"/><path d="M6 9v4h5"/></svg>
-                      <span class="min-w-0 truncate">Dashboard content</span>
-                    </div>
-                    <ul class="ml-2.5 border-l border-zinc-700 pl-1.5" role="list">
-                      <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                        <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                        <span class="min-w-0 truncate">Good morning, Maya</span>
-                      </li>
-                      <li>
-                        <div class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-200">
-                          <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1"/><rect x="11" y="11" width="6" height="5" rx="1"/><path d="M6 9v4h5"/></svg>
-                          <span class="min-w-0 truncate">Key metrics</span>
-                        </div>
-                        <ul class="ml-2.5 border-l border-zinc-700 pl-1.5" role="list">
-                          <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                            <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                            <span class="min-w-0 truncate">Net revenue</span>
-                          </li>
-                          <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                            <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                            <span class="min-w-0 truncate">New customers</span>
-                          </li>
-                          <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                            <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                            <span class="min-w-0 truncate">Orders</span>
-                          </li>
-                        </ul>
-                      </li>
-                      <li>
-                        <div class="flex h-7 min-w-0 items-center gap-1.5 rounded bg-violet-500/15 px-1 font-medium text-violet-200" aria-current="true">
-                          <svg class="h-3.5 w-3.5 shrink-0 text-violet-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1"/><rect x="11" y="11" width="6" height="5" rx="1"/><path d="M6 9v4h5"/></svg>
-                          <span class="min-w-0 truncate">Revenue overview</span>
-                        </div>
-                        <ul class="ml-2.5 border-l border-zinc-700 pl-1.5" role="list">
-                          <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                            <svg class="lucide lucide-image h-3.5 w-3.5 shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                            <span class="min-w-0 truncate">Revenue trend</span>
-                          </li>
-                        </ul>
-                      </li>
-                      <li>
-                        <div class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-200">
-                          <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1"/><rect x="11" y="11" width="6" height="5" rx="1"/><path d="M6 9v4h5"/></svg>
-                          <span class="min-w-0 truncate">Recent activity</span>
-                        </div>
-                        <ul class="ml-2.5 border-l border-zinc-700 pl-1.5" role="list">
-                          <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                            <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                            <span class="min-w-0 truncate">Payment received</span>
-                          </li>
-                          <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                            <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                            <span class="min-w-0 truncate">New customer</span>
-                          </li>
-                          <li class="flex h-7 min-w-0 items-center gap-1.5 px-1 text-zinc-300">
-                            <svg class="h-3.5 w-3.5 shrink-0 text-zinc-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6"/></svg>
-                            <span class="min-w-0 truncate">Report exported</span>
-                          </li>
-                        </ul>
-                      </li>
-                    </ul>
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </section>
+          <div class="mb-1 mt-3 flex h-7 items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+            <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+            Display
+            <span class="ml-auto font-mono font-normal">4</span>
+          </div>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Card</button>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Badge</button>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Avatar</button>
+          <button class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-zinc-400"><span class="grid h-4 w-4 place-items-center rounded border border-zinc-600 text-[9px]">◇</span> Toast</button>
+        </nav>
+        <div class="border-t border-zinc-700/80 p-3 text-[10px] text-zinc-500">
+          <div class="flex items-center gap-2"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> 10 components discovered</div>
+          <p class="mt-1 pl-3.5 font-mono text-[9px] text-zinc-400">components/**/*.liquid</p>
         </div>
       </aside>
 
-      <section class="relative min-w-0 flex-1 overflow-hidden bg-[#111113]" aria-label="Design canvas">
-        <div class="h-full overflow-auto">
-          <div class="flex min-h-[652px] min-w-[872px] items-center justify-center p-14">
-          <article class="relative h-[540px] w-[760px] shrink-0 overflow-visible bg-[#f7f8fa] shadow-[0_12px_36px_rgba(0,0,0,0.5)]" aria-label="Selected dashboard artboard">
-            <div class="absolute -top-6 left-0 flex items-center gap-2 text-[10px] font-medium text-violet-300">
-              <span>Dashboard / Desktop</span>
-              <span class="rounded bg-violet-500/20 px-1.5 py-0.5">760 × 540</span>
+      <section class="relative min-w-0 flex-1 overflow-hidden bg-[#121214]" aria-label="Component gallery">
+        <div class="flex h-11 items-center border-b border-zinc-700/70 bg-[#171719] px-4">
+          <div>
+            <h1 class="text-[12px] font-semibold text-zinc-100">Component gallery</h1>
+            <p class="text-[9px] text-zinc-500">Live specimens from your Liquid files</p>
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            <div class="flex rounded-md border border-zinc-700 bg-[#111113] p-0.5">
+              <button class="grid h-6 w-7 place-items-center rounded bg-zinc-700 text-zinc-100" title="Gallery view">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              </button>
+              <button class="grid h-6 w-7 place-items-center rounded text-zinc-500" title="List view">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+              </button>
             </div>
-
-            <div class="absolute inset-0 flex">
-              <aside class="flex w-[152px] shrink-0 flex-col bg-[#171d2d] px-4 py-5 text-white" aria-label="Dashboard navigation preview">
-                <div class="flex items-center gap-2 text-[13px] font-semibold">
-                  <span class="grid h-7 w-7 place-items-center rounded-lg bg-violet-500">
-                    <svg class="lucide lucide-house h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-                  </span>
-                  Northstar
-                </div>
-                <nav class="mt-8 space-y-1" aria-label="Dashboard preview menu">
-                  <div class="flex items-center gap-2 rounded-md bg-white/10 px-2.5 py-2 text-[10px] font-medium">
-                    <svg class="lucide lucide-layout-dashboard h-3.5 w-3.5 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
-                    Overview
-                  </div>
-                  <div class="flex items-center gap-2 px-2.5 py-2 text-[10px] text-slate-400">
-                    <svg class="lucide lucide-chart-no-axes-combined h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16v5"/><path d="M16 14.639V21"/><path d="M20 10.656V21"/><path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15"/><path d="M4 18.463V21"/><path d="M8 14.656V21"/></svg>
-                    Analytics
-                  </div>
-                  <div class="flex items-center gap-2 px-2.5 py-2 text-[10px] text-slate-400">
-                    <svg class="lucide lucide-credit-card h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
-                    Transactions
-                  </div>
-                  <div class="flex items-center gap-2 px-2.5 py-2 text-[10px] text-slate-400">
-                    <svg class="lucide lucide-users h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg>
-                    Customers
-                  </div>
-                </nav>
-                <div class="mt-auto rounded-lg border border-white/10 bg-white/5 p-3">
-                  <div class="mb-2 flex items-center justify-between text-[9px] text-slate-400"><span>Monthly goal</span><span>72%</span></div>
-                  <div class="h-1 overflow-hidden rounded-full bg-white/10"><div class="h-full w-[72%] rounded-full bg-violet-400"></div></div>
-                  <p class="mt-2 text-[9px] leading-4 text-slate-400">$36k of $50k</p>
-                </div>
-                <div class="mt-4 flex items-center gap-2 border-t border-white/10 pt-4">
-                  <span class="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-amber-200 to-orange-400 text-[8px] font-bold text-orange-900">MC</span>
-                  <div><p class="text-[9px] font-medium">Maya Chen</p><p class="text-[8px] text-slate-500">Admin</p></div>
-                  <span class="ml-auto text-slate-500">•••</span>
-                </div>
-              </aside>
-
-              <div class="min-w-0 flex-1 px-6 py-5">
-                <header class="flex items-start justify-between">
-                  <div>
-                    <p class="text-[9px] font-medium text-violet-600">MONDAY, APRIL 8</p>
-                    <h1 class="mt-1 text-[20px] font-semibold tracking-[-0.02em] text-slate-900">Good morning, Maya</h1>
-                    <p class="mt-1 text-[9px] text-slate-500">Here’s what’s happening with your store today.</p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span class="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500">
-                      <svg class="lucide lucide-bell h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>
-                    </span>
-                    <span class="rounded-lg bg-violet-600 px-3 py-2 text-[9px] font-semibold text-white shadow-sm">+ New report</span>
-                  </div>
-                </header>
-
-                <section class="mt-5 grid grid-cols-3 gap-3" aria-label="Key metrics">
-                  <div class="rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                    <div class="flex items-center justify-between"><span class="text-[9px] font-medium text-slate-500">Net revenue</span><span class="grid h-6 w-6 place-items-center rounded-md bg-violet-50 text-violet-600">$</span></div>
-                    <p class="mt-3 text-[17px] font-semibold text-slate-900">$24,780</p>
-                    <p class="mt-1 text-[8px] text-emerald-600">↑ 12.5% <span class="text-slate-400">vs last month</span></p>
-                  </div>
-                  <div class="rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                    <div class="flex items-center justify-between"><span class="text-[9px] font-medium text-slate-500">New customers</span><span class="grid h-6 w-6 place-items-center rounded-md bg-sky-50 text-sky-600">+</span></div>
-                    <p class="mt-3 text-[17px] font-semibold text-slate-900">1,429</p>
-                    <p class="mt-1 text-[8px] text-emerald-600">↑ 8.2% <span class="text-slate-400">vs last month</span></p>
-                  </div>
-                  <div class="rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                    <div class="flex items-center justify-between"><span class="text-[9px] font-medium text-slate-500">Orders</span><span class="grid h-6 w-6 place-items-center rounded-md bg-amber-50 text-amber-600">#</span></div>
-                    <p class="mt-3 text-[17px] font-semibold text-slate-900">2,860</p>
-                    <p class="mt-1 text-[8px] text-rose-500">↓ 1.4% <span class="text-slate-400">vs last month</span></p>
-                  </div>
-                </section>
-
-                <div class="mt-3 grid grid-cols-[1.55fr_1fr] gap-3">
-                  <section class="flex flex-col gap-3 rounded-xl border-2 border-violet-500 bg-white p-4 font-sans text-sm font-normal leading-normal tracking-normal text-slate-800 shadow-sm selection:bg-violet-100 motion-reduce:transition-none print:break-inside-avoid" aria-labelledby="revenue-heading">
-                    <div class="flex items-start justify-between">
-                      <div><h2 id="revenue-heading" class="text-[10px] font-semibold text-slate-800">Revenue overview</h2><p class="mt-0.5 text-[8px] text-slate-400">January – June 2026</p></div>
-                      <span class="rounded-md border border-slate-200 px-2 py-1 text-[8px] text-slate-500">Monthly⌄</span>
-                    </div>
-                    <div class="flex h-[104px] gap-2">
-                      <div class="flex flex-col justify-between pb-3 text-[8px] text-slate-500"><span>30k</span><span>20k</span><span>10k</span><span>0</span></div>
-                      <div class="relative min-w-0 flex-1 border-b border-l border-slate-200 bg-[linear-gradient(to_bottom,transparent_32%,#e2e8f0_33%,transparent_34%,transparent_65%,#e2e8f0_66%,transparent_67%)]">
-                        <svg class="absolute inset-0 h-full w-full" viewBox="0 0 260 100" preserveAspectRatio="none" aria-label="Revenue rising from January to June">
-                          <defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b5cf6" stop-opacity=".28"/><stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/></linearGradient></defs>
-                          <path d="M0 78 C25 75 32 62 52 65 S82 48 104 54 S132 34 156 40 S185 48 208 24 S238 32 260 12 L260 100 L0 100Z" fill="url(#chart-fill)"/>
-                          <path d="M0 78 C25 75 32 62 52 65 S82 48 104 54 S132 34 156 40 S185 48 208 24 S238 32 260 12" fill="none" stroke="#7c3aed" stroke-width="2" vector-effect="non-scaling-stroke"/>
-                          <circle cx="208" cy="24" r="3" fill="white" stroke="#7c3aed" stroke-width="2"/>
-                        </svg>
-                        <div class="absolute inset-x-1 -bottom-4 flex justify-between text-[8px] text-slate-500"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" aria-labelledby="activity-heading">
-                    <div class="flex items-center justify-between"><h2 id="activity-heading" class="text-[10px] font-semibold text-slate-800">Recent activity</h2><span class="text-[8px] font-medium text-violet-600">View all</span></div>
-                    <div class="mt-3 space-y-3">
-                      <div class="flex gap-2"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-emerald-50 text-[8px] text-emerald-600">$</span><div class="min-w-0"><p class="truncate text-[8px] font-medium text-slate-700">Payment received</p><p class="text-[8px] text-slate-500">Order #2841 · 2m</p></div><span class="ml-auto text-[8px] font-medium">+$420</span></div>
-                      <div class="flex gap-2"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-sky-50 text-[8px] text-sky-600">M</span><div class="min-w-0"><p class="truncate text-[8px] font-medium text-slate-700">New customer</p><p class="text-[8px] text-slate-500">Morgan Lee · 18m</p></div></div>
-                      <div class="flex gap-2"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-50 text-[8px] text-amber-600">↗</span><div class="min-w-0"><p class="truncate text-[8px] font-medium text-slate-700">Report exported</p><p class="text-[8px] text-slate-500">April summary · 1h</p></div></div>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </div>
-
-          </article>
+            <button class="flex h-7 items-center gap-1.5 rounded-md border border-zinc-700 bg-[#111113] px-2 text-zinc-400" title="Background sampled from the root page">
+              <span class="h-3 w-3 rounded-sm border border-zinc-500 bg-[#f7f8fa]"></span> From /
+              <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
           </div>
         </div>
 
-        <fieldset class="absolute bottom-4 left-1/2 z-10 flex w-max -translate-x-1/2 items-center overflow-hidden rounded-lg border border-zinc-500 bg-[#242428] p-0.5 text-[10px] text-zinc-200 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
-          <legend class="sr-only">Canvas mode</legend>
-          <span>
-            <input id="canvas-mode-pan" class="peer sr-only" type="radio" name="canvas-mode" value="pan" checked>
-            <label class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-[#242428] px-3 font-medium text-zinc-200 peer-checked:bg-violet-600 peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-[-2px] peer-focus-visible:outline-white" for="canvas-mode-pan">
-              <svg class="lucide lucide-hand h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
-              </svg>
-              Pan
-            </label>
-          </span>
-          <span>
-            <input id="canvas-mode-inspect" class="peer sr-only" type="radio" name="canvas-mode" value="inspect">
-            <label class="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-[#242428] px-3 font-medium text-zinc-200 peer-checked:bg-violet-600 peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-[-2px] peer-focus-visible:outline-white" for="canvas-mode-inspect">
-              <svg class="lucide lucide-mouse-pointer-2 h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>
-              </svg>
-              Inspect
-            </label>
-          </span>
-        </fieldset>
+        <div class="h-[calc(100%-2.75rem)] overflow-auto bg-[#f7f8fa] [background-image:radial-gradient(rgba(100,116,139,0.18)_1px,transparent_1px)] [background-position:0_0] [background-size:20px_20px]">
+          <div class="mx-auto max-w-[1120px] p-8 lg:p-10">
+            <section aria-labelledby="actions-title">
+              <div class="mb-5 flex items-end justify-between">
+                <div><h2 id="actions-title" class="text-[13px] font-semibold text-slate-900">Actions</h2><p class="mt-0.5 text-[10px] text-slate-500">3 components · 8 specimens</p></div>
+                <span class="font-mono text-[9px] text-slate-500">components/actions</span>
+              </div>
+
+              <article class="relative min-h-48 border border-dashed border-violet-400/70 px-7 pb-7 pt-12" aria-label="Button component">
+                <div class="absolute left-3 top-3 flex items-center gap-2">
+                  <h3 class="font-semibold text-violet-700">Button</h3>
+                  <span class="font-mono text-[8px] text-slate-600">4 variants</span>
+                </div>
+                <span class="absolute right-3 top-3 font-mono text-[8px] text-slate-600">actions/button.liquid</span>
+                <div class="grid min-h-28 items-center gap-8 sm:grid-cols-2 xl:grid-cols-4">
+                  <div class="text-center">
+                    <p class="mb-4 font-mono text-[8px] text-slate-600">Primary</p>
+                    <button class="rounded-lg bg-violet-600 px-4 py-2 text-[10px] font-semibold text-white shadow-sm">Create project</button>
+                  </div>
+                  <div class="text-center">
+                    <p class="mb-4 font-mono text-[8px] text-slate-600">Secondary</p>
+                    <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-[10px] font-semibold text-slate-700 shadow-sm">View details</button>
+                  </div>
+                  <div class="text-center">
+                    <p class="mb-4 font-mono text-[8px] text-slate-600">Ghost</p>
+                    <button class="rounded-lg px-4 py-2 text-[10px] font-semibold text-slate-700 hover:bg-slate-200/60">Cancel</button>
+                  </div>
+                  <div class="text-center">
+                    <p class="mb-4 font-mono text-[8px] text-slate-600">Danger</p>
+                    <button class="rounded-lg bg-rose-600 px-4 py-2 text-[10px] font-semibold text-white shadow-sm">Delete project</button>
+                  </div>
+                </div>
+              </article>
+
+              <div class="mt-7 grid gap-7 lg:grid-cols-[minmax(0,1.35fr)_minmax(240px,0.65fr)]">
+                <article class="relative min-h-36 border border-dashed border-slate-300 p-8 pt-11">
+                  <h3 class="absolute left-3 top-3 font-semibold text-slate-800">Icon button <span class="ml-1 font-mono text-[8px] font-normal text-slate-500">3 variants</span></h3>
+                  <div class="flex min-h-16 items-center justify-center gap-5">
+                    <button class="grid h-9 w-9 place-items-center rounded-lg bg-violet-600 text-white"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+                    <button class="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-slate-600"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m5 4v7m4-7v7"/></svg></button>
+                    <button class="grid h-9 w-9 place-items-center rounded-lg text-slate-500"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+                  </div>
+                </article>
+                <article class="relative min-h-36 border border-dashed border-slate-300 p-8 pt-11">
+                  <h3 class="absolute left-3 top-3 font-semibold text-slate-800">Link</h3>
+                  <div class="flex min-h-16 flex-col items-center justify-center gap-3 text-[10px] font-medium">
+                    <a class="text-violet-400 underline underline-offset-2">Read documentation</a>
+                    <a class="flex items-center gap-1 text-slate-700">View project <span>→</span></a>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="mt-10" aria-labelledby="forms-title">
+              <div class="mb-5"><h2 id="forms-title" class="text-[13px] font-semibold text-slate-900">Forms</h2><p class="mt-0.5 text-[10px] text-slate-500">3 components · 5 specimens</p></div>
+              <div class="grid items-start gap-7 md:grid-cols-2 xl:grid-cols-3">
+                <article class="relative min-h-48 border border-dashed border-slate-300 px-6 pb-6 pt-12">
+                  <h3 class="absolute left-3 top-3 font-semibold text-slate-800">Input</h3>
+                  <span class="absolute right-3 top-3 font-mono text-[8px] text-slate-500">480px</span>
+                  <div class="mt-4 text-slate-700">
+                    <label class="text-[9px] font-semibold">Email address</label>
+                    <div class="mt-1.5 rounded-lg border border-violet-500 bg-white px-3 py-2.5 text-[10px] shadow-[0_0_0_3px_rgba(139,92,246,0.12)]">maya@northstar.co</div>
+                    <p class="mt-1.5 text-[8px] text-slate-500">We’ll never share your email.</p>
+                  </div>
+                </article>
+                <article class="relative min-h-48 border border-dashed border-slate-300 px-6 pb-6 pt-12">
+                  <h3 class="absolute left-3 top-3 font-semibold text-slate-800">Select</h3>
+                  <span class="absolute right-3 top-3 font-mono text-[8px] text-slate-500">320px</span>
+                  <div class="mt-4 text-slate-700"><label class="text-[9px] font-semibold">Workspace</label><div class="mt-1.5 flex rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[10px]"><span>Northstar</span><span class="ml-auto text-slate-500">⌄</span></div></div>
+                </article>
+                <article class="relative min-h-36 border border-dashed border-slate-300 px-6 pb-6 pt-12 md:col-span-2 xl:col-span-1">
+                  <h3 class="absolute left-3 top-3 font-semibold text-slate-800">Checkbox</h3>
+                  <span class="absolute right-3 top-3 font-mono text-[8px] text-slate-500">2 states</span>
+                  <div class="mt-2 flex flex-col gap-3 text-slate-700">
+                    <label class="flex items-center gap-2.5"><span class="grid h-4 w-4 place-items-center rounded bg-violet-500 text-[9px] text-white">✓</span><span>Send weekly summary</span></label>
+                    <label class="flex items-center gap-2.5"><span class="h-4 w-4 rounded border border-slate-300 bg-white"></span><span class="text-slate-500">Product updates</span></label>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        </div>
       </section>
 
-      <aside class="hidden w-64 shrink-0 flex-col overflow-hidden border-l border-zinc-700 bg-[#1c1c1f] xl:flex" aria-label="Tailwind properties">
+      <aside class="hidden w-60 shrink-0 flex-col border-l border-zinc-700/80 bg-[#1b1b1e] xl:flex" aria-label="Component inspector">
+        <div class="flex h-11 items-center border-b border-zinc-700/80 px-3"><h2 class="font-semibold">Button</h2><span class="ml-auto rounded bg-violet-500/15 px-1.5 py-0.5 text-[8px] font-semibold text-violet-300">SELECTED</span></div>
         <div class="min-h-0 flex-1 overflow-y-auto">
-          <header class="sticky top-0 z-10 border-b border-zinc-700 bg-[#1c1c1f]/95 px-3 py-2.5 backdrop-blur">
-            <div class="flex items-center justify-between">
-              <h2 class="text-[12px] font-semibold text-zinc-100">Properties</h2>
+          <section class="border-b border-zinc-700/80 p-3">
+            <h3 class="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Source</h3>
+            <div class="mt-2 rounded-md border border-zinc-700 bg-[#141416] p-2.5 font-mono text-[9px] leading-4 text-zinc-400"><span class="text-zinc-400">components/</span><br>actions/button.liquid</div>
+            <div class="mt-2 flex items-center gap-2 text-[9px] text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> Preview ready</div>
+          </section>
+          <section class="border-b border-zinc-700/80 p-3">
+            <div class="flex items-center"><h3 class="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Specimens</h3><button class="ml-auto text-[9px] text-violet-300">Open file ↗</button></div>
+            <div class="mt-2 space-y-1">
+              <button class="flex h-8 w-full items-center rounded-md bg-violet-500/15 px-2 text-violet-200"><span>Primary</span><span class="ml-auto font-mono text-[8px]">default</span></button>
+              <button class="flex h-8 w-full items-center rounded-md px-2 text-zinc-400"><span>Secondary</span><span class="ml-auto font-mono text-[8px]">outline</span></button>
+              <button class="flex h-8 w-full items-center rounded-md px-2 text-zinc-400"><span>Ghost</span><span class="ml-auto font-mono text-[8px]">ghost</span></button>
+              <button class="flex h-8 w-full items-center rounded-md px-2 text-zinc-400"><span>Danger</span><span class="ml-auto font-mono text-[8px]">danger</span></button>
             </div>
-            <div class="mt-2 flex min-w-0 items-center gap-2">
-              <strong class="min-w-0 truncate text-[11px] font-semibold text-zinc-100">Revenue overview</strong>
-              <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">&lt;section&gt;</code>
+          </section>
+          <section class="border-b border-zinc-700/80 p-3">
+            <h3 class="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Preview surface</h3>
+            <div class="mt-2 grid grid-cols-4 gap-1.5">
+              <button class="aspect-square rounded-md border-2 border-violet-500 bg-white" title="Light"></button>
+              <button class="aspect-square rounded-md border border-zinc-700 bg-[#242429]" title="Dark"></button>
+              <button class="aspect-square rounded-md border border-zinc-700 [background-image:linear-gradient(45deg,#444_25%,transparent_25%),linear-gradient(-45deg,#444_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#444_75%),linear-gradient(-45deg,transparent_75%,#444_75%)] [background-position:0_0,0_5px,5px_-5px,-5px_0px] [background-size:10px_10px]" title="Transparent"></button>
+              <button class="grid aspect-square place-items-center rounded-md border border-zinc-700 text-zinc-500" title="Custom">+</button>
             </div>
-            <p class="mt-1 text-[10px] text-zinc-500">18 authored classes on this element</p>
-          </header>
-
-          <div class="space-y-2 p-2.5">
-            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="fill-heading">
-              <h3 id="fill-heading" class="font-semibold text-zinc-100">Fill</h3>
-              <div class="mt-2 grid h-9 grid-cols-[32px_1fr] items-center overflow-hidden rounded border border-zinc-600 bg-zinc-800">
-                <span class="grid h-full place-items-center border-r border-zinc-600" aria-hidden="true"><i class="h-4 w-4 rounded-sm border border-zinc-300 bg-white not-italic"></i></span>
-                <div class="flex min-w-0 items-center px-2">
-                  <span class="text-[9px] text-zinc-500">Background</span>
-                  <output class="ml-auto truncate font-mono text-[10px] text-zinc-100">white</output>
-                </div>
-              </div>
-            </section>
-
-            <section class="rounded-lg border border-violet-500/25 bg-gradient-to-br from-violet-500/10 to-zinc-900/35 p-2.5" aria-labelledby="layout-heading">
-              <div class="flex items-center justify-between">
-                <h3 id="layout-heading" class="font-semibold text-zinc-100">Layout</h3>
-                <output class="rounded bg-violet-500/20 px-1.5 py-0.5 font-mono text-[9px] text-violet-200">flex</output>
-              </div>
-              <div class="mt-2.5 grid grid-cols-[72px_1fr] gap-3">
-                <div class="flex h-[72px] flex-col justify-center gap-2.5 rounded-md border border-violet-400/30 bg-zinc-950/60 p-2" aria-label="Column layout preview with gap 3">
-                  <span class="h-2 w-full rounded-sm bg-violet-300/80"></span>
-                  <span class="h-2 w-4/5 rounded-sm bg-violet-400/60"></span>
-                  <span class="h-2 w-3/5 rounded-sm bg-violet-500/45"></span>
-                </div>
-                <dl class="grid content-center gap-2 text-[9px]">
-                  <div class="flex items-center justify-between border-b border-zinc-700/70 pb-1.5"><dt class="text-zinc-500">Direction</dt><dd><output class="font-mono text-[10px] text-zinc-100">col</output></dd></div>
-                  <div class="flex items-center justify-between"><dt class="text-zinc-500">Gap</dt><dd><output class="grid h-5 min-w-5 place-items-center rounded bg-violet-500/20 px-1 font-mono text-[10px] text-violet-200">3</output></dd></div>
-                </dl>
-              </div>
-            </section>
-
-            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="padding-heading">
-              <div class="flex items-center justify-between">
-                <h3 id="padding-heading" class="font-semibold text-zinc-100">Padding</h3>
-                <span class="text-[9px] text-zinc-500">All sides</span>
-              </div>
-              <div class="mt-2 grid h-20 grid-cols-[38px_1fr_38px] grid-rows-[20px_1fr_20px] items-center text-center font-mono text-[10px]">
-                <output class="col-start-2 row-start-1 text-violet-300">4</output>
-                <output class="col-start-1 row-start-2 text-violet-300">4</output>
-                <div class="col-start-2 row-start-2 grid h-full place-items-center rounded-lg border border-dashed border-violet-400/40 bg-violet-500/8">
-                  <span class="rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-[9px] text-zinc-500">content</span>
-                </div>
-                <output class="col-start-3 row-start-2 text-violet-300">4</output>
-                <output class="col-start-2 row-start-3 text-violet-300">4</output>
-              </div>
-            </section>
-
-            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="text-heading">
-              <div class="flex items-center justify-between">
-                <h3 id="text-heading" class="font-semibold text-zinc-100">Text</h3>
-                <svg class="lucide lucide-type h-3.5 w-3.5 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>
-              </div>
-              <div class="mt-2 grid grid-cols-2 overflow-hidden rounded border border-zinc-600 bg-zinc-800">
-                <div class="border-r border-zinc-600 px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Family</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">sans</output></div>
-                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Weight</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">normal</output></div>
-              </div>
-              <div class="mt-1.5 grid grid-cols-3 divide-x divide-zinc-600 overflow-hidden rounded border border-zinc-600 bg-zinc-800">
-                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Size</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">sm</output></div>
-                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Line</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">normal</output></div>
-                <div class="px-2 py-1.5"><span class="block text-[8px] text-zinc-500">Tracking</span><output class="mt-0.5 block font-mono text-[10px] text-zinc-100">normal</output></div>
-              </div>
-              <div class="mt-1.5 grid h-8 grid-cols-[26px_54px_1fr] items-center overflow-hidden rounded border border-zinc-600 bg-zinc-800">
-                  <span class="mx-auto h-3.5 w-3.5 rounded-sm bg-slate-800" aria-hidden="true"></span>
-                  <span class="text-[9px] text-zinc-500">Color</span>
-                  <output class="truncate px-2 text-right font-mono text-[10px] text-zinc-100">slate-800</output>
-              </div>
-            </section>
-
-            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="border-heading">
-              <h3 id="border-heading" class="font-semibold text-zinc-100">Border &amp; corners</h3>
-              <div class="mt-2 divide-y divide-zinc-700 overflow-hidden rounded border border-zinc-600 bg-zinc-800">
-                <div class="grid h-8 grid-cols-[26px_1fr_auto] items-center">
-                  <span class="mx-auto h-3.5 w-3.5 rounded-sm bg-violet-500" aria-hidden="true"></span>
-                  <span class="px-1 text-[9px] text-zinc-500">Border color</span>
-                  <output class="px-2 font-mono text-[10px] text-zinc-100">violet-500</output>
-                </div>
-                <div class="grid h-8 grid-cols-[26px_1fr_auto] items-center">
-                  <span class="mx-auto h-0.5 w-3.5 bg-zinc-400" aria-hidden="true"></span>
-                  <span class="px-1 text-[9px] text-zinc-500">Border width</span>
-                  <output class="px-2 font-mono text-[10px] text-zinc-100">2</output>
-                </div>
-                <div class="grid h-8 grid-cols-[26px_1fr_auto] items-center">
-                  <svg class="mx-auto h-3.5 w-3.5 text-zinc-500" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 13V7a4 4 0 0 1 4-4h6"/></svg>
-                  <span class="px-1 text-[9px] text-zinc-500">All corners</span>
-                  <output class="px-2 font-mono text-[10px] text-zinc-100">xl</output>
-                </div>
-              </div>
-            </section>
-
-            <section class="rounded-lg border border-zinc-700 bg-zinc-900/35 p-2.5" aria-labelledby="effects-heading">
-              <div class="flex items-center justify-between">
-                <h3 id="effects-heading" class="font-semibold text-zinc-100">Effects</h3>
-                <span class="font-mono text-[9px] text-zinc-500">fx</span>
-              </div>
-              <div class="mt-2 flex h-9 items-center rounded border border-zinc-600 bg-zinc-800 px-2">
-                <span class="relative mr-2 h-4 w-5" aria-hidden="true"><i class="absolute left-0 top-0 h-3 w-3 rounded-sm border border-zinc-400 bg-zinc-700 not-italic"></i><i class="absolute bottom-0 right-0 h-3 w-3 rounded-sm bg-white shadow-sm not-italic"></i></span>
-                <span class="text-[9px] text-zinc-300">Drop shadow</span>
-                <output class="ml-auto rounded bg-zinc-700 px-2 py-0.5 font-mono text-[10px] text-zinc-100">sm</output>
-              </div>
-            </section>
-
-            <section class="rounded-lg border border-amber-500/25 bg-amber-500/5 p-2.5" aria-labelledby="other-classes-heading">
-              <div class="flex items-center justify-between">
-                <h3 id="other-classes-heading" class="font-semibold text-zinc-100">Other classes</h3>
-                <span class="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[9px] text-amber-300">3</span>
-              </div>
-              <p class="mt-1 text-[9px] text-zinc-500">Unmapped utilities and variants</p>
-              <div class="mt-2 space-y-1.5">
-                <code class="block truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-[10px] text-amber-200" title="selection:bg-violet-100">selection:bg-violet-100</code>
-                <code class="block truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-[10px] text-amber-200" title="motion-reduce:transition-none">motion-reduce:transition-none</code>
-                <code class="block truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-[10px] text-amber-200" title="print:break-inside-avoid">print:break-inside-avoid</code>
-              </div>
-            </section>
-          </div>
+          </section>
+          <section class="p-3">
+            <h3 class="text-[9px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Preview width</h3>
+            <div class="mt-2 flex items-center gap-2"><input class="min-w-0 flex-1 accent-violet-500" type="range" min="240" max="768" value="480"><span class="w-12 rounded-md border border-zinc-700 bg-[#141416] px-1.5 py-1 text-center font-mono text-[9px]">480</span></div>
+            <p class="mt-2 text-[9px] leading-4 text-zinc-500">Double-click a specimen to open it in a focused workbench.</p>
+          </section>
         </div>
       </aside>
     </div>
-
-    <footer class="flex h-6 shrink-0 items-center border-t border-zinc-700 bg-[#18181b] px-3 text-[9px] text-zinc-400" aria-label="Editor status">
-      <span class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>All changes saved</span>
-      <span class="mx-3 h-3 w-px bg-zinc-700"></span>
-      <span>Dashboard / Revenue overview</span>
-      <span class="ml-auto hidden sm:inline">Last edited just now</span>
-    </footer>
   </main>
 {% endblock %}

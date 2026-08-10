@@ -1,0 +1,6 @@
+<div class="max-w-lg" data-frame="Field">
+  {% component "field", id: "email", label: "Email address" %}
+    {% component "input", id: "email", name: "email", type: "email", value: "", placeholder: "you@example.com", autocomplete: "email", required: true, described_by: "email-description" %}{% endcomponent %}
+    {% slot "description" %}We only use this for your order.{% endslot %}
+  {% endcomponent %}
+</div>

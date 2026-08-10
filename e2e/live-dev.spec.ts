@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises"
+import * as http from "node:http"
 import * as os from "node:os"
 import * as path from "node:path"
 import { expect, test, type Locator, type Page } from "@playwright/test"
@@ -82,6 +83,921 @@ test("renders every route and reloads the board when routes change", async ({ pa
   expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
 })
 
+test("switches to the discovered component catalog", async ({ page }) => {
+  const browserProblems: string[] = []
+  page.on("console", (message) => {
+    if (["warning", "error"].includes(message.type())) {
+      browserProblems.push(message.text())
+    }
+  })
+  page.on("pageerror", (error) => browserProblems.push(error.message))
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await page.evaluate(() => {
+    const testWindow = globalThis as unknown as {
+      splatpadMeasurementProbeSandboxes: string[]
+      splatpadProbeScriptRan: boolean
+      splatpadRootBackgroundScriptRuns: number
+    }
+    testWindow.splatpadMeasurementProbeSandboxes = []
+    testWindow.splatpadProbeScriptRan = false
+    testWindow.splatpadRootBackgroundScriptRuns = 0
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const addedNode of record.addedNodes) {
+          if (!(addedNode instanceof HTMLElement)) {
+            continue
+          }
+          const probes = addedNode.matches("iframe[data-splatpad-measurement-probe]")
+            ? [addedNode]
+            : [...addedNode.querySelectorAll("iframe[data-splatpad-measurement-probe]")]
+          for (const probe of probes) {
+            testWindow.splatpadMeasurementProbeSandboxes.push(
+              (probe as HTMLIFrameElement).getAttribute("sandbox") ?? "",
+            )
+          }
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+  await preview(page, "/").evaluate((iframe) => {
+    const document = (iframe as HTMLIFrameElement).contentDocument
+    if (document?.body === null || document?.body === undefined) {
+      throw new Error("Expected the rendered root document")
+    }
+    const style = document.createElement("style")
+    style.textContent = `
+      body.runtime-root-theme { background-color: rgb(250, 250, 248) !important; }
+      @media (min-width: 768px) {
+        body.runtime-root-theme { background-color: rgb(8, 12, 20) !important; }
+      }
+    `
+    const script = document.createElement("script")
+    script.textContent = `
+      parent.splatpadRootBackgroundScriptRuns += 1
+      document.body.classList.add("runtime-root-theme")
+    `
+    document.head.append(style, script)
+  })
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (globalThis as unknown as { splatpadRootBackgroundScriptRuns: number })
+            .splatpadRootBackgroundScriptRuns,
+      ),
+    )
+    .toBe(1)
+  await page.getByRole("button", { name: "Components", exact: true }).click()
+
+  await expect(page.locator(".page-frame")).toHaveCount(13)
+  await expect(page.locator(".page-frame--component")).toHaveCount(13)
+  await expect(page.locator(".page-frame--component iframe")).toHaveCount(13)
+  await expect(page.locator('[data-component-group=""]')).toContainText("Root components")
+  await expect(page.getByRole("button", { name: "button", exact: true })).toBeVisible()
+  await expect(
+    page.locator('.page-frame[data-route="/__splatpad/design/components/button/"]'),
+  ).toBeVisible()
+  await expect(
+    page
+      .frameLocator('iframe[title="/__splatpad/design/components/button/"]')
+      .getByRole("button", { name: "Order now" }),
+  ).toBeVisible()
+  await expect(page.locator(".designer-footer")).toContainText("13 components")
+  await expect(page.locator(".page-frame--component").first()).toHaveCSS(
+    "border-top-style",
+    "dashed",
+  )
+  await expect(page.locator(".page-frame--component").first()).toHaveCSS("box-shadow", "none")
+  await expect
+    .poll(() =>
+      page.locator(".page-frame--component").evaluateAll((frames) =>
+        frames.every((frame) => {
+          const width = (frame as HTMLElement).offsetWidth
+          return width >= 239 && width <= 721
+        }),
+      ),
+    )
+    .toBe(true)
+  const viewportControl = page.getByRole("combobox", { name: "Viewport breakpoint" })
+  await viewportControl.selectOption("md")
+  await expect
+    .poll(() =>
+      page
+        .locator(".page-frame--component iframe")
+        .evaluateAll((frames) =>
+          frames.every((frame) => (frame as HTMLElement).offsetWidth === 768),
+        ),
+    )
+    .toBe(true)
+  await viewportControl.selectOption("Default")
+
+  const alertFrame = page.locator('.page-frame[data-route="/__splatpad/design/components/alert/"]')
+  const initialAlertHeight = await alertFrame.evaluate(
+    (frame) => (frame as HTMLElement).offsetHeight,
+  )
+  const initialAlertWidth = await alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth)
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("body")
+    .evaluate((body) => {
+      body.setAttribute("onload", "parent.splatpadProbeScriptRan = true")
+      const root = body.querySelector<HTMLElement>('[data-frame="Alert variants"]')
+      if (root === null) {
+        throw new Error("Expected the alert component root")
+      }
+      root.style.position = "relative"
+      const flyout = body.ownerDocument.createElement("div")
+      flyout.dataset.measurementFlyout = ""
+      flyout.style.height = "24px"
+      flyout.style.left = "300px"
+      flyout.style.position = "absolute"
+      flyout.style.top = "400px"
+      flyout.style.width = "80px"
+      root.append(flyout)
+    })
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeGreaterThan(initialAlertHeight + 180)
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth))
+    .toBeGreaterThan(400)
+  await expect
+    .poll(() =>
+      page
+        .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+        .locator("body")
+        .evaluate((body) => {
+          const flyout = body.querySelector<HTMLElement>("[data-measurement-flyout]")
+          return (
+            flyout?.parentElement?.matches('[data-frame="Alert variants"]') === true &&
+            flyout.getBoundingClientRect().right <= body.clientWidth
+          )
+        }),
+    )
+    .toBe(true)
+  const offsetAlertHeight = await alertFrame.evaluate(
+    (frame) => (frame as HTMLElement).offsetHeight,
+  )
+  const offsetAlertWidth = await alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth)
+  const probesBeforeMutationBurst = await page.evaluate(
+    () =>
+      (
+        globalThis as unknown as {
+          splatpadMeasurementProbeSandboxes: string[]
+        }
+      ).splatpadMeasurementProbeSandboxes.length,
+  )
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("[data-measurement-flyout]")
+    .evaluate((flyout) => {
+      const element = flyout as HTMLElement
+      element.style.left = "530px"
+      element.style.top = "590px"
+      const testWindow = globalThis as unknown as {
+        splatpadContinuousMutationCount: number
+        splatpadContinuousMutationTimer: ReturnType<typeof setInterval>
+      }
+      testWindow.splatpadContinuousMutationCount = 0
+      testWindow.splatpadContinuousMutationTimer = globalThis.setInterval(() => {
+        testWindow.splatpadContinuousMutationCount += 1
+        element.dataset.continuousMutation = `${testWindow.splatpadContinuousMutationCount}`
+      }, 50)
+    })
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeGreaterThan(offsetAlertHeight + 120)
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth))
+    .toBeGreaterThan(offsetAlertWidth + 120)
+  const continuousMutationsBeforeWait = await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("body")
+    .evaluate(
+      () =>
+        (globalThis as unknown as { splatpadContinuousMutationCount: number })
+          .splatpadContinuousMutationCount,
+    )
+  await page.waitForTimeout(150)
+  await expect
+    .poll(() =>
+      page
+        .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+        .locator("body")
+        .evaluate(
+          () =>
+            (globalThis as unknown as { splatpadContinuousMutationCount: number })
+              .splatpadContinuousMutationCount,
+        ),
+    )
+    .toBeGreaterThan(continuousMutationsBeforeWait)
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("body")
+    .evaluate(() => {
+      const testWindow = globalThis as unknown as {
+        splatpadContinuousMutationTimer: ReturnType<typeof setInterval>
+      }
+      globalThis.clearInterval(testWindow.splatpadContinuousMutationTimer)
+    })
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              splatpadMeasurementProbeSandboxes: string[]
+            }
+          ).splatpadMeasurementProbeSandboxes.length,
+      ),
+    )
+    .toBeLessThanOrEqual(probesBeforeMutationBurst + 2)
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("[data-measurement-flyout]")
+    .evaluate((flyout) => flyout.remove())
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeLessThan(initialAlertHeight + 10)
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth))
+    .toBeLessThan(initialAlertWidth + 10)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              splatpadMeasurementProbeSandboxes: string[]
+            }
+          ).splatpadMeasurementProbeSandboxes,
+      ),
+    )
+    .toContain("allow-same-origin")
+  expect(
+    await page.evaluate(
+      () => (globalThis as unknown as { splatpadProbeScriptRan: boolean }).splatpadProbeScriptRan,
+    ),
+  ).toBe(false)
+
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator("body")
+    .evaluate((body) => {
+      const root = body.querySelector<HTMLElement>('[data-frame="Alert variants"]')
+      if (root === null) {
+        throw new Error("Expected the alert component root")
+      }
+      const style = body.ownerDocument.createElement("style")
+      style.dataset.measurementPseudo = ""
+      style.textContent = `
+        [data-frame="Alert variants"].measurement-pseudo::after {
+          content: "";
+          height: 24px;
+          left: 360px;
+          position: absolute;
+          top: 360px;
+          transform: translate(100px, 80px) rotate(90deg);
+          transform-origin: 0 0;
+          width: 96px;
+        }
+        [data-frame="Alert variants"].measurement-pseudo.measurement-pseudo--expanded::after {
+          transform: translate(300px, 260px) rotate(45deg);
+          transform-origin: 48px 12px;
+        }
+      `
+      body.ownerDocument.head.append(style)
+      root.classList.add("measurement-pseudo")
+    })
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeGreaterThan(initialAlertHeight + 220)
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth))
+    .toBeGreaterThan(470)
+  const transformedPseudoHeight = await alertFrame.evaluate(
+    (frame) => (frame as HTMLElement).offsetHeight,
+  )
+  const transformedPseudoWidth = await alertFrame.evaluate(
+    (frame) => (frame as HTMLElement).offsetWidth,
+  )
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator('[data-frame="Alert variants"]')
+    .evaluate((root) => root.classList.add("measurement-pseudo--expanded"))
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeGreaterThan(transformedPseudoHeight + 100)
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth))
+    .toBeGreaterThan(transformedPseudoWidth + 100)
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator('[data-frame="Alert variants"]')
+    .evaluate((root) => root.classList.remove("measurement-pseudo--expanded"))
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeLessThan(transformedPseudoHeight + 10)
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth))
+    .toBeLessThan(transformedPseudoWidth + 10)
+  await page
+    .frameLocator('iframe[title="/__splatpad/design/components/alert/"]')
+    .locator('[data-frame="Alert variants"]')
+    .evaluate((root) => root.classList.remove("measurement-pseudo"))
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetHeight))
+    .toBeLessThan(initialAlertHeight + 10)
+  await expect
+    .poll(() => alertFrame.evaluate((frame) => (frame as HTMLElement).offsetWidth))
+    .toBeLessThan(initialAlertWidth + 10)
+  await expect
+    .poll(() =>
+      page.locator(".designer-canvas").evaluate((canvas) => {
+        const sampler = canvas.querySelector<HTMLIFrameElement>(
+          ".designer-canvas__background-sampler",
+        )
+        const surface = canvas.querySelector<HTMLElement>(".component-catalog-surface")
+        const body = sampler?.contentDocument?.body
+        if (body === null || body === undefined || surface === null) {
+          return false
+        }
+        return (
+          getComputedStyle(surface).backgroundColor ===
+          sampler?.contentWindow?.getComputedStyle(body).backgroundColor
+        )
+      }),
+    )
+    .toBe(true)
+  await expect(page.locator(".designer-canvas")).not.toHaveClass(/designer-canvas--dark/)
+  await expect(page.locator(".designer-canvas")).toHaveAttribute(
+    "data-canvas-background",
+    "rgb(250, 250, 248)",
+  )
+  expect(
+    await page.evaluate(
+      () =>
+        (globalThis as unknown as { splatpadRootBackgroundScriptRuns: number })
+          .splatpadRootBackgroundScriptRuns,
+    ),
+  ).toBe(1)
+  await expect(page.locator(".designer-canvas__background-sampler")).toHaveAttribute(
+    "sandbox",
+    "allow-same-origin",
+  )
+  await page.locator(".designer-canvas__background-sampler").evaluate((element) => {
+    const sampler = element as HTMLIFrameElement
+    const document = sampler.contentDocument
+    if (document?.body === null || document?.body === undefined) {
+      throw new Error("Expected the background sampler document")
+    }
+    const style = document.createElement("style")
+    style.textContent = `
+      body { background-color: rgb(250, 250, 248) !important; }
+      @media (min-width: 768px) {
+        body { background-color: rgb(8, 12, 20) !important; }
+      }
+    `
+    document.head.append(style)
+    ;(globalThis as unknown as { splatpadSamplerScriptRan: boolean }).splatpadSamplerScriptRan =
+      false
+    document.body.setAttribute("onclick", "top.splatpadSamplerScriptRan = true")
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    const nestedFrame = document.createElement("iframe")
+    nestedFrame.dataset.sandboxCheck = ""
+    nestedFrame.srcdoc = '<body onload="top.splatpadSamplerScriptRan = true"></body>'
+    document.body.append(nestedFrame)
+  })
+  await expect
+    .poll(() =>
+      page.locator(".designer-canvas__background-sampler").evaluate((element) => {
+        const sampler = element as HTMLIFrameElement
+        const nestedFrame = sampler.contentDocument?.querySelector<HTMLIFrameElement>(
+          "iframe[data-sandbox-check]",
+        )
+        return nestedFrame?.contentDocument?.readyState
+      }),
+    )
+    .toBe("complete")
+  expect(
+    await page.evaluate(
+      () =>
+        (globalThis as unknown as { splatpadSamplerScriptRan?: boolean }).splatpadSamplerScriptRan,
+    ),
+  ).toBe(false)
+  await expect(page.locator(".designer-canvas__background-sampler")).toHaveCSS("width", "639px")
+  await expect(page.locator(".designer-canvas")).toHaveAttribute(
+    "data-canvas-background",
+    "rgb(250, 250, 248)",
+  )
+  await expect(page.locator(".component-catalog-surface")).toHaveCSS(
+    "background-color",
+    "rgb(250, 250, 248)",
+  )
+  await viewportControl.selectOption("md")
+  await expect(page.locator(".designer-canvas__background-sampler")).toHaveCSS("width", "768px")
+  await expect(page.locator(".designer-canvas")).toHaveAttribute(
+    "data-canvas-background",
+    "rgb(8, 12, 20)",
+  )
+  await expect(page.locator(".designer-canvas")).toHaveClass(/designer-canvas--dark/)
+  await expect(page.locator(".component-catalog-surface")).toHaveCSS(
+    "background-color",
+    "rgb(8, 12, 20)",
+  )
+  await expect(page.locator(".designer-canvas")).toHaveCSS("background-color", "rgb(17, 17, 19)")
+  await viewportControl.selectOption("Default")
+  await expect(page.locator(".designer-canvas")).toHaveAttribute(
+    "data-canvas-background",
+    "rgb(250, 250, 248)",
+  )
+  await expect(page.locator(".designer-canvas")).not.toHaveClass(/designer-canvas--dark/)
+  await page.locator(".designer-canvas__background-sampler").evaluate((element) => {
+    const sampler = element as HTMLIFrameElement
+    const samplerWindow = sampler.contentWindow
+    if (samplerWindow === null) {
+      throw new Error("Expected the background sampler window")
+    }
+    const testWindow = globalThis as unknown as {
+      splatpadSamplerDisconnects: number
+      splatpadSamplerListenerRemovals: number
+    }
+    testWindow.splatpadSamplerDisconnects = 0
+    testWindow.splatpadSamplerListenerRemovals = 0
+    const samplerGlobal = samplerWindow as unknown as typeof globalThis
+    const originalDisconnect = samplerGlobal.MutationObserver.prototype.disconnect
+    samplerGlobal.MutationObserver.prototype.disconnect = function () {
+      testWindow.splatpadSamplerDisconnects += 1
+      originalDisconnect.call(this)
+    }
+    const originalRemoveEventListener = samplerWindow.removeEventListener.bind(samplerWindow)
+    samplerWindow.removeEventListener = ((
+      ...parameters: Parameters<typeof removeEventListener>
+    ) => {
+      if (parameters[0] === "resize") {
+        testWindow.splatpadSamplerListenerRemovals += 1
+      }
+      originalRemoveEventListener(...parameters)
+    }) as typeof samplerWindow.removeEventListener
+  })
+  await page.getByRole("button", { name: "Pages", exact: true }).click()
+  await expect(page.locator(".designer-canvas__background-sampler")).toHaveCount(0)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (globalThis as unknown as { splatpadSamplerDisconnects: number })
+            .splatpadSamplerDisconnects,
+      ),
+    )
+    .toBeGreaterThan(0)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (globalThis as unknown as { splatpadSamplerListenerRemovals: number })
+            .splatpadSamplerListenerRemovals,
+      ),
+    )
+    .toBeGreaterThan(0)
+  await page.getByRole("button", { name: "Components", exact: true }).click()
+  await expect(
+    page.frameLocator('iframe[title="/__splatpad/design/components/button/"]').locator("html"),
+  ).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+
+  await page.getByRole("button", { name: "button", exact: true }).click()
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Components", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await expect(page.locator(".designer-header__location code")).toHaveText("button")
+  await expect(
+    page
+      .frameLocator('iframe[title="/__splatpad/design/components/button/"]')
+      .getByRole("button", { name: "Order now" }),
+  ).toBeVisible()
+
+  const previewFile = path.join(siteRoot, "components", "button.design.liquid")
+  const originalPreview = await fs.readFile(previewFile, "utf8")
+  await fs.writeFile(previewFile, `${originalPreview}\n<p>Reload marker</p>\n`)
+  try {
+    await expect(
+      page
+        .frameLocator('iframe[title="/__splatpad/design/components/button/"]')
+        .getByText("Reload marker"),
+    ).toBeVisible()
+    await expect(page.getByRole("button", { name: "Components", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await expect(page.locator(".designer-header__location code")).toHaveText("button")
+  } finally {
+    await fs.writeFile(previewFile, originalPreview)
+  }
+
+  const groupedComponent = path.join(siteRoot, "components", "forms", "compact-input.liquid")
+  await fs.mkdir(path.dirname(groupedComponent), { recursive: true })
+  await fs.writeFile(groupedComponent, '<input aria-label="Compact input">')
+  try {
+    await expect(page.locator('[data-component-group="forms"]')).toContainText("forms")
+    await expect(
+      page.locator('.page-frame[data-route="/__splatpad/design/components/forms/compact-input/"]'),
+    ).toHaveCount(1)
+  } finally {
+    await fs.rm(path.dirname(groupedComponent), { recursive: true })
+  }
+  expect(browserProblems.join("\n")).not.toContain("ResizeObserver")
+})
+
+test("loads the root sampler when Components opens before the root preview", async ({ page }) => {
+  let releaseRoot: (() => void) | undefined
+  let reportBlockedRoot: (() => void) | undefined
+  const rootRelease = new Promise<void>((resolve) => {
+    releaseRoot = resolve
+  })
+  const rootBlocked = new Promise<void>((resolve) => {
+    reportBlockedRoot = resolve
+  })
+  let rootRequests = 0
+  await page.route(`${baseUrl}/`, async (route) => {
+    rootRequests += 1
+    if (rootRequests === 1) {
+      reportBlockedRoot?.()
+      await rootRelease
+    }
+    await route.continue().catch(() => undefined)
+  })
+
+  try {
+    await page.goto(`${baseUrl}/__splatpad/design/`, { waitUntil: "domcontentloaded" })
+    await expect(page.getByRole("button", { name: "Components", exact: true })).toBeVisible()
+    await rootBlocked
+    await page.getByRole("button", { name: "Components", exact: true }).click()
+
+    const sampler = page.locator(".designer-canvas__background-sampler")
+    await expect(sampler).toHaveAttribute("src", "/")
+    await expect(sampler).not.toHaveAttribute("srcdoc", /.+/)
+    await expect
+      .poll(() =>
+        sampler.evaluate((element) => {
+          const frame = element as HTMLIFrameElement
+          return {
+            page: frame.contentDocument?.body?.dataset.page,
+            pathname: frame.contentWindow?.location.pathname,
+            readyState: frame.contentDocument?.readyState,
+          }
+        }),
+      )
+      .toEqual({ page: "/", pathname: "/", readyState: "complete" })
+    await expect
+      .poll(() =>
+        page.locator(".designer-canvas").evaluate((canvas) => {
+          const samplerFrame = canvas.querySelector<HTMLIFrameElement>(
+            ".designer-canvas__background-sampler",
+          )
+          const body = samplerFrame?.contentDocument?.body
+          return body === null || body === undefined
+            ? false
+            : canvas.getAttribute("data-canvas-background") ===
+                samplerFrame?.contentWindow?.getComputedStyle(body).backgroundColor
+        }),
+      )
+      .toBe(true)
+  } finally {
+    releaseRoot?.()
+    await page.unroute(`${baseUrl}/`)
+  }
+})
+
+test("opens a component-only site after discovery completes", async ({ page }) => {
+  const componentOnlyRoot = await fs.mkdtemp(path.join(os.tmpdir(), "splatpad-components-only-"))
+  const componentFile = path.join(componentOnlyRoot, "components", "status-badge.liquid")
+  await fs.mkdir(path.dirname(componentFile), { recursive: true })
+  await fs.mkdir(path.join(componentOnlyRoot, "pages"))
+  await fs.mkdir(path.join(componentOnlyRoot, "data"))
+  await fs.writeFile(path.join(componentOnlyRoot, "data", "site.json"), "{}")
+  await fs.writeFile(componentFile, '<strong class="status-badge">Component-only badge</strong>')
+  const componentServer = await createServer(
+    createSiteConfig(componentOnlyRoot, {
+      design: true,
+      server: { host: "127.0.0.1", port: 0 },
+    }),
+  )
+  await componentServer.listen()
+
+  try {
+    const address = componentServer.httpServer?.address()
+    if (address === null || typeof address === "string" || address === undefined) {
+      throw new Error("Expected the component-only server to listen on a TCP port")
+    }
+    await page.goto(`http://127.0.0.1:${address.port}/__splatpad/design/`)
+
+    await expect(page.locator(".designer")).toBeVisible()
+    await expect(page.getByText("Loading site routes...")).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Pages", exact: true })).toContainText("0")
+    await expect(page.getByRole("button", { name: "Components", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await expect(
+      page.locator('.page-frame[data-route="/__splatpad/design/components/status-badge/"]'),
+    ).toBeVisible()
+    await expect(
+      page
+        .frameLocator('iframe[title="/__splatpad/design/components/status-badge/"]')
+        .getByText("Component-only badge"),
+    ).toBeVisible()
+  } finally {
+    await componentServer.close()
+    await fs.rm(componentOnlyRoot, { recursive: true })
+  }
+})
+
+test("settles component measurement across a breakpoint boundary", async ({ page }) => {
+  await page.goto(`${baseUrl}/__splatpad/design/`)
+  await page.getByRole("button", { name: "Components", exact: true }).click()
+  const route = "/__splatpad/design/components/alert/"
+  const frame = preview(page, route)
+  await expect(frame).toBeVisible()
+
+  await frame.evaluate((iframe) => {
+    const document = (iframe as HTMLIFrameElement).contentDocument
+    if (document?.body === null || document?.body === undefined) {
+      throw new Error("Expected the component preview document")
+    }
+    document.body.innerHTML = '<div class="probe"></div>'
+    const style = document.createElement("style")
+    style.textContent = `
+      html, body { margin: 0; padding: 0; }
+      .probe { width: 500px; height: 20px; }
+      @media (min-width: 500px) {
+        .probe { width: 100px; height: 40px; }
+      }
+    `
+    document.head.append(style)
+  })
+
+  await expect(frame).toHaveCSS("width", "500px")
+  await expect(frame).toHaveCSS("height", "40px")
+  const samples = await frame.evaluate(
+    (iframe) =>
+      new Promise<string[]>((resolve) => {
+        const values: string[] = []
+        const sample = (): void => {
+          const currentFrame = iframe as HTMLIFrameElement
+          values.push(`${currentFrame.offsetWidth}x${currentFrame.offsetHeight}`)
+          if (values.length === 30) {
+            resolve(values)
+          } else {
+            globalThis.requestAnimationFrame(sample)
+          }
+        }
+        globalThis.requestAnimationFrame(sample)
+      }),
+  )
+  expect(new Set(samples)).toEqual(new Set(["500x40"]))
+})
+
+test("measures dynamic preview resources without requesting them from detached probes", async ({
+  page,
+}) => {
+  const assetName = "measurement-request-count.svg"
+  const assetPath = path.join(siteRoot, assetName)
+  await fs.writeFile(
+    assetPath,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="73" height="31"><rect width="73" height="31"/></svg>',
+  )
+  let requests = 0
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === `/${assetName}`) {
+      requests += 1
+    }
+  })
+
+  try {
+    await page.goto(`${baseUrl}/__splatpad/design/`)
+    await page.getByRole("button", { name: "Components", exact: true }).click()
+    const frame = preview(page, "/__splatpad/design/components/alert/")
+    await expect(frame).toBeVisible()
+    await frame.evaluate(
+      (iframe, source) =>
+        new Promise<void>((resolve, reject) => {
+          const document = (iframe as HTMLIFrameElement).contentDocument
+          if (document?.body === null || document?.body === undefined) {
+            reject(new Error("Expected the component preview document"))
+            return
+          }
+          const image = document.createElement("img")
+          image.alt = "Measurement request count"
+          image.addEventListener("load", () => resolve(), { once: true })
+          image.addEventListener("error", () => reject(new Error("Expected the image to load")), {
+            once: true,
+          })
+          image.src = source
+          document.body.append(image)
+        }),
+      `/${assetName}`,
+    )
+    await expect.poll(() => page.locator("iframe[data-splatpad-measurement-probe]").count()).toBe(0)
+    await page.waitForTimeout(250)
+    expect(requests).toBe(1)
+  } finally {
+    await fs.rm(assetPath)
+  }
+})
+
+test("keeps cross-origin responsive sizing fixed without refetching stylesheets", async ({
+  page,
+}) => {
+  let stylesheetRequests = 0
+  const stylesheetServer = http.createServer((_request, response) => {
+    stylesheetRequests += 1
+    response.setHeader("Content-Type", "text/css")
+    response.end(`
+      html, body { margin: 0; padding: 0; }
+      .cross-origin-target { height: 20px; position: relative; width: 100px; }
+      .cross-origin-target::after {
+        content: "";
+        height: 10px;
+        left: 420px;
+        position: absolute;
+        top: 0;
+        width: 110px;
+      }
+      @media (min-width: 400px) {
+        .cross-origin-target { height: 80px; width: 620px; }
+        .cross-origin-target::after { left: 680px; width: 140px; }
+      }
+    `)
+  })
+  await new Promise<void>((resolve, reject) => {
+    stylesheetServer.once("error", reject)
+    stylesheetServer.listen(0, "127.0.0.1", resolve)
+  })
+
+  try {
+    const address = stylesheetServer.address()
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected the stylesheet server to listen on a TCP port")
+    }
+    await page.goto(`${baseUrl}/__splatpad/design/`)
+    await page.getByRole("button", { name: "Components", exact: true }).click()
+    const frame = preview(page, "/__splatpad/design/components/alert/")
+    await expect(frame).toBeVisible()
+    await frame.evaluate(
+      (iframe, stylesheetUrl) =>
+        new Promise<void>((resolve, reject) => {
+          const document = (iframe as HTMLIFrameElement).contentDocument
+          if (document?.body === null || document?.body === undefined) {
+            reject(new Error("Expected the component preview document"))
+            return
+          }
+          document.body.innerHTML = '<div class="cross-origin-target"></div>'
+          const link = document.createElement("link")
+          link.rel = "stylesheet"
+          link.href = stylesheetUrl
+          link.addEventListener("load", () => resolve(), { once: true })
+          link.addEventListener(
+            "error",
+            () => reject(new Error("Expected the cross-origin stylesheet to load")),
+            { once: true },
+          )
+          document.head.append(link)
+        }),
+      `http://127.0.0.1:${address.port}/geometry.css`,
+    )
+
+    await expect(frame).toHaveCSS("width", "240px")
+    await expect(frame).toHaveCSS("height", "20px")
+    await frame.evaluate(
+      (iframe) =>
+        new Promise<void>((resolve) => {
+          const target = (iframe as HTMLIFrameElement).contentDocument?.querySelector<HTMLElement>(
+            ".cross-origin-target",
+          )
+          if (target === null || target === undefined) {
+            throw new Error("Expected the cross-origin measurement target")
+          }
+          let mutation = 0
+          const timer = setInterval(() => {
+            target.dataset.responsiveMutation = `${mutation}`
+            mutation += 1
+            if (mutation === 20) {
+              clearInterval(timer)
+              resolve()
+            }
+          }, 10)
+        }),
+    )
+    const samples = await frame.evaluate(
+      (iframe) =>
+        new Promise<string[]>((resolve) => {
+          const values: string[] = []
+          const sample = (): void => {
+            const currentFrame = iframe as HTMLIFrameElement
+            values.push(`${currentFrame.offsetWidth}x${currentFrame.offsetHeight}`)
+            if (values.length === 30) {
+              resolve(values)
+            } else {
+              globalThis.requestAnimationFrame(sample)
+            }
+          }
+          globalThis.requestAnimationFrame(sample)
+        }),
+    )
+    expect(new Set(samples)).toEqual(new Set(["240x20"]))
+    await page.waitForTimeout(250)
+    expect(stylesheetRequests).toBe(1)
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      stylesheetServer.close((error) => (error === undefined ? resolve() : reject(error)))
+    })
+  }
+})
+
+test("does not activate noscript resources in script-disabled helper documents", async ({
+  page,
+}) => {
+  const assetName = "noscript-request-count.svg"
+  const assetPath = path.join(siteRoot, assetName)
+  await fs.writeFile(
+    assetPath,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="19" height="11"><rect width="19" height="11"/></svg>',
+  )
+  let requests = 0
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === `/${assetName}`) {
+      requests += 1
+    }
+  })
+
+  try {
+    await page.goto(`${baseUrl}/__splatpad/design/`)
+    const rootFrame = preview(page, "/")
+    await expect(rootFrame).toBeVisible()
+    await rootFrame.evaluate((iframe, source) => {
+      const document = (iframe as HTMLIFrameElement).contentDocument
+      if (document?.body === null || document?.body === undefined) {
+        throw new Error("Expected the root preview document")
+      }
+      const noscript = document.createElement("noscript")
+      noscript.textContent = `<img src="${source}?helper=root">`
+      document.body.append(noscript)
+    }, `/${assetName}`)
+
+    await page.getByRole("button", { name: "Components", exact: true }).click()
+    const componentFrame = preview(page, "/__splatpad/design/components/alert/")
+    await expect(componentFrame).toBeVisible()
+    await componentFrame.evaluate((iframe, source) => {
+      const document = (iframe as HTMLIFrameElement).contentDocument
+      if (document?.body === null || document?.body === undefined) {
+        throw new Error("Expected the component preview document")
+      }
+      const noscript = document.createElement("noscript")
+      noscript.textContent = `<picture><source srcset="${source}?helper=measurement"><img src="${source}?helper=measurement"></picture>`
+      document.body.append(noscript)
+    }, `/${assetName}`)
+
+    await expect(page.locator(".designer-canvas__background-sampler")).toBeAttached()
+    await expect.poll(() => page.locator("iframe[data-splatpad-measurement-probe]").count()).toBe(0)
+    await page.waitForTimeout(250)
+    expect(requests).toBe(0)
+  } finally {
+    await fs.rm(assetPath)
+  }
+})
+
+test("survives repeated initial navigation and full preview reloads", async ({ page }) => {
+  const browserProblems: string[] = []
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      browserProblems.push(message.text())
+    }
+  })
+  page.on("pageerror", (error) => browserProblems.push(error.message))
+
+  const runReloadCycle = async (): Promise<void> => {
+    await page.goto("about:blank")
+    await page.goto(`${baseUrl}/__splatpad/design/`)
+    await page.getByRole("button", { name: "Pages", exact: true }).click()
+    await expect(page.locator(".page-frame")).toHaveCount(7)
+    await page.reload()
+    await expect(page.locator(".page-frame")).toHaveCount(7)
+    await page.getByRole("button", { name: "Components", exact: true }).click()
+    await expect(page.locator(".page-frame--component")).toHaveCount(13)
+  }
+  await runReloadCycle()
+  await runReloadCycle()
+  await runReloadCycle()
+  await runReloadCycle()
+
+  expect(
+    browserProblems.join("\n"),
+    "reloads must not create ResizeObserver loop errors",
+  ).not.toContain("ResizeObserver")
+})
+
 test("focuses a real page from the site outline without changing the canvas shell", async ({
   page,
 }) => {
@@ -157,12 +1073,18 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   page,
 }) => {
   const outlineRoute = path.join(siteRoot, "pages", "outline", "index.liquid")
+  const outlineComponent = path.join(siteRoot, "components", "outline-widget.liquid")
   await fs.mkdir(path.dirname(outlineRoute), { recursive: true })
+  await fs.writeFile(
+    outlineComponent,
+    '<button class="outline-component" data-frame="Component root">{% yield %}</button>',
+  )
   await fs.writeFile(
     outlineRoute,
     `<main data-frame="Hero frame" class="frame-target">
       <h1 class="text-target">Scoped outline text</h1>
       <svg aria-label="Bakery mark" class="svg-target" viewBox="0 0 10 10"><title>Vector title</title><circle cx="5" cy="5" r="4" /></svg>
+      {% component "outline-widget" %}Outline action{% endcomponent %}
     </main>`,
   )
 
@@ -188,6 +1110,48 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
     return samples.at(-1) ?? 0
   }
   const overviewScale = await canvasScale()
+  await expect(page.locator('.page-frame[data-route="/outline/"]')).not.toHaveClass(
+    /page-frame--active/,
+  )
+  await inspectTool(page).click()
+  await waitForInspectReady(page, "/outline/")
+  await page.locator("body").evaluate((body) => {
+    const frame = body.ownerDocument.querySelector<HTMLIFrameElement>('iframe[title="/outline/"]')
+    const target = frame?.contentDocument?.querySelector(".outline-component")
+    const surface = frame
+      ?.closest(".page-frame")
+      ?.querySelector<HTMLElement>(".page-frame__interaction-surface")
+    if (frame === null || frame === undefined || target === null || target === undefined) {
+      throw new Error("Expected the non-active component instance")
+    }
+    if (surface === null || surface === undefined) {
+      throw new Error("Expected the non-active frame inspection surface")
+    }
+    const frameBounds = frame.getBoundingClientRect()
+    const targetBounds = target.getBoundingClientRect()
+    const scaleX = frame.offsetWidth === 0 ? 1 : frameBounds.width / frame.offsetWidth
+    const scaleY = frame.offsetHeight === 0 ? 1 : frameBounds.height / frame.offsetHeight
+    const clientX = frameBounds.left + (targetBounds.left + targetBounds.width / 2) * scaleX
+    const clientY = frameBounds.top + (targetBounds.top + targetBounds.height / 2) * scaleY
+    for (const type of ["pointerdown", "pointerup"]) {
+      surface.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          buttons: type === "pointerdown" ? 1 : 0,
+          clientX,
+          clientY,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: "mouse",
+        }),
+      )
+    }
+  })
+  await expect(page.getByRole("region", { name: "Component instance" })).toContainText(
+    "outline-widget",
+  )
+
   await expect(page.getByRole("button", { name: "/outline/", exact: true })).toBeVisible()
   await page.getByRole("button", { name: "/outline/", exact: true }).click()
   await expect.poll(canvasScale).toBeGreaterThan(overviewScale)
@@ -206,6 +1170,14 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   await expect(
     outline.locator('[data-outline-kind="text"]', { hasText: "Vector title" }),
   ).toHaveCount(0)
+  const componentOutlineItem = outline.locator('[data-outline-kind="component"]', {
+    hasText: "outline-widget",
+  })
+  await expect(componentOutlineItem).toBeVisible()
+  const componentRootOutlineItem = outline.locator('[data-outline-kind="frame"]', {
+    hasText: "Component root",
+  })
+  await expect(componentRootOutlineItem).toBeVisible()
 
   await preview(page, "/outline/").evaluate((element) => {
     const frame = element as HTMLIFrameElement
@@ -241,6 +1213,87 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   await outline.locator('[data-outline-kind="text"]', { hasText: "Scoped outline text" }).click()
   await expectInspectorClassName(page, "text-target")
 
+  await componentOutlineItem.click()
+  await expect(componentOutlineItem).toHaveAttribute("aria-selected", "true")
+  await expect(componentRootOutlineItem).toHaveAttribute("aria-selected", "false")
+  await expect(page.getByRole("region", { name: "Component instance" })).toContainText(
+    "outline-widget",
+  )
+  await preview(page, "/outline/").evaluate((element) => {
+    const document = (element as HTMLIFrameElement).contentDocument
+    const target = document?.querySelector(".outline-component")
+    const endMarker = [...(target?.parentElement?.childNodes ?? [])].find(
+      (node) => node.nodeType === 8 && node.nodeValue === "splatpad-component:end:outline-widget",
+    )
+    if (
+      target === null ||
+      target === undefined ||
+      endMarker?.parentNode === null ||
+      endMarker === undefined
+    ) {
+      throw new Error("Expected the selected component and its end marker")
+    }
+    endMarker.parentNode.insertBefore(target, endMarker.nextSibling)
+  })
+  await expect(page.getByRole("region", { name: "Component instance" })).toHaveCount(0)
+  await expect(componentOutlineItem).toHaveAttribute("aria-selected", "true")
+  await expectInspectorClassName(page, "outline-component")
+  await preview(page, "/outline/").evaluate((element) => {
+    const document = (element as HTMLIFrameElement).contentDocument
+    const target = document?.querySelector(".outline-component")
+    const endMarker = [...(target?.parentElement?.childNodes ?? [])].find(
+      (node) => node.nodeType === 8 && node.nodeValue === "splatpad-component:end:outline-widget",
+    )
+    if (
+      target === null ||
+      target === undefined ||
+      endMarker?.parentNode === null ||
+      endMarker === undefined
+    ) {
+      throw new Error("Expected the selected component and its end marker")
+    }
+    endMarker.parentNode.insertBefore(target, endMarker)
+  })
+  await expect(page.getByRole("region", { name: "Component instance" })).toContainText(
+    "outline-widget",
+  )
+  await componentRootOutlineItem.click()
+  await expect(componentOutlineItem).toHaveAttribute("aria-selected", "false")
+  await expect(componentRootOutlineItem).toHaveAttribute("aria-selected", "true")
+  await componentOutlineItem.click()
+  await page.getByRole("button", { name: "Open outline-widget component" }).click()
+  await expect(page.getByRole("button", { name: "Components", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  const componentFrame = page.locator(
+    '.page-frame[data-route="/__splatpad/design/components/outline-widget/"]',
+  )
+  await expect(componentFrame).toHaveClass(/page-frame--active/)
+  await expect
+    .poll(() =>
+      page.locator(".designer-canvas").evaluate((canvas, route) => {
+        const frame = canvas.querySelector<HTMLElement>(`.page-frame[data-route="${route}"]`)
+        if (frame === null) {
+          return false
+        }
+        const canvasBounds = canvas.getBoundingClientRect()
+        const frameBounds = frame.getBoundingClientRect()
+        return (
+          Math.abs(
+            canvasBounds.left + canvasBounds.width / 2 - (frameBounds.left + frameBounds.width / 2),
+          ) < 4 &&
+          Math.abs(
+            canvasBounds.top + canvasBounds.height / 2 - (frameBounds.top + frameBounds.height / 2),
+          ) < 4
+        )
+      }, "/__splatpad/design/components/outline-widget/"),
+    )
+    .toBe(true)
+
+  await page.getByRole("button", { name: "Pages", exact: true }).click()
+  await page.getByRole("button", { name: "/outline/", exact: true }).click()
+
   await page.getByRole("button", { name: "/menu/", exact: true }).click()
   await expect(outline.getByText("Scoped outline text", { exact: true })).toHaveCount(0)
 
@@ -254,6 +1307,7 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   await expectInspectorClassName(page, "replacement-target")
 
   await fs.rm(path.dirname(outlineRoute), { recursive: true })
+  await fs.rm(outlineComponent)
 })
 
 const panTool = (page: Page): Locator => page.getByRole("button", { name: "Pan tool (V)" })

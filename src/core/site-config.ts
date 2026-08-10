@@ -26,7 +26,7 @@ export const createSiteConfig = (
     logLevel: terminal.quiet || terminal.jsonMode ? "silent" : "info",
     plugins: [
       ...(design ? [designerPlugin({ root })] : []),
-      liquidPlugin({ root, routes }),
+      liquidPlugin({ design, root, routes }),
       UnoCSS({
         configFile: false,
         inspector: false,

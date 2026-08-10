@@ -74,6 +74,35 @@ describe("component dialect", () => {
     ).resolves.toBe("O(I(red:!))")
   })
 
+  it("can annotate nested component instances without wrapping their markup", async () => {
+    await component("outer", '<section class="outer">{% yield %}</section>')
+    await component("inner", '<strong class="inner">Inner</strong>')
+    const annotatedEngine = new Liquid({
+      cache: false,
+      extname: ".liquid",
+      partials: partialsRoot,
+      strictFilters: true,
+      strictVariables: true,
+    })
+    const annotatedComponents = new Liquid({
+      cache: false,
+      extname: ".liquid",
+      partials: partialsRoot,
+      root: componentsRoot,
+      strictFilters: true,
+      strictVariables: true,
+    })
+    registerComponentDialect(annotatedEngine, annotatedComponents, { annotateComponents: true })
+
+    await expect(
+      annotatedEngine.parseAndRender(
+        `{% component "outer" %}{% component "inner" %}{% endcomponent %}{% endcomponent %}`,
+      ),
+    ).resolves.toBe(
+      '<!--splatpad-component:start:outer--><section class="outer"><!--splatpad-component:start:inner--><strong class="inner">Inner</strong><!--splatpad-component:end:inner--></section><!--splatpad-component:end:outer-->',
+    )
+  })
+
   it("renders components and lazily cached slots synchronously", async () => {
     await component(
       "outer",

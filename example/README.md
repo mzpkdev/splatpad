@@ -17,6 +17,8 @@ JSON trigger a full reload.
 - `layouts/` contains Liquid layouts.
 - `components/` contains reusable Liquid components. `menu-card.liquid` shows
   explicit props, a default slot, a named slot, and nested component calls.
+- `components/*.design.liquid` renders component variants in the design
+  command's Components view. These files are previews, not site routes.
 - The shared layout links `/__uno.css` as a render-blocking head stylesheet.
 
 Component templates run in isolated scopes and receive only the props named in

@@ -45,7 +45,7 @@ export const design = async (
 
 export default defineCommand({
   name: "design",
-  description: "Show every site route on a read-only design canvas.",
+  description: "Show site routes and Liquid components on a read-only design canvas.",
   arguments: [siteRoot],
   options: [host, port],
   run: ({ root, host: hostname, port: portNumber }) =>
