@@ -1,0 +1,7 @@
+<div
+  role="note"
+  class="rounded-3xl border px-5 py-4 font-semibold leading-6 {% if variant == "success" %}border-[#87996f]/30 bg-[#dbe5cb] text-[#3f4c32]{% else %}border-[#bd4828]/20 bg-[#f4e6d2] text-[#62584f]{% endif %}"
+  {% if label %}aria-label="{{ label | escape }}"{% endif %}
+>
+  {% yield %}
+</div>

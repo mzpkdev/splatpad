@@ -87,6 +87,61 @@ test.describe("Crumb & Bloom", () => {
     )
   })
 
+  test("visit planner renders accessible, styled form controls", async ({ page }) => {
+    await page.goto("/visit/")
+
+    const name = page.getByRole("textbox", { name: "Your name" })
+    const email = page.getByRole("textbox", { name: "Email address" })
+    const day = page.getByRole("combobox", { name: "Best day to visit" })
+    const note = page.getByRole("textbox", { name: "Anything we should know?" })
+    const stepFree = page.getByRole("checkbox", {
+      name: "Include step-free entrance directions in my plan",
+    })
+    const submit = page.getByRole("button", { name: "Build my visit plan" })
+
+    await expect(name).toHaveAttribute("type", "text")
+    await expect(name).toHaveAttribute("required", "")
+    await expect(name).toHaveAttribute("aria-describedby", "visit-name-description")
+    await expect(name).toHaveAccessibleDescription("Who should we expect at the bakery?")
+
+    await expect(email).toHaveAttribute("type", "email")
+    await expect(email).not.toHaveAttribute("required")
+    await expect(email).toHaveAttribute("aria-describedby", "visit-email-description")
+    await expect(email).toHaveAccessibleDescription(
+      "Optional, in case you want a copy of your plan.",
+    )
+
+    await expect(day).toHaveAttribute("required", "")
+    await expect(day).toHaveAttribute("aria-describedby", "visit-day-description")
+    await expect(day).toHaveAccessibleDescription("We are open Tuesday through Sunday.")
+
+    await expect(note).toHaveJSProperty("tagName", "TEXTAREA")
+    await expect(note).not.toHaveAttribute("required")
+    await expect(note).toHaveAttribute("aria-describedby", "visit-note-description")
+    await expect(note).toHaveAccessibleDescription(
+      "Optional. Add any detail that will help you plan the stop.",
+    )
+
+    await expect(stepFree).not.toBeChecked()
+    await expect(stepFree).not.toHaveAttribute("required")
+    await expect(submit).toHaveAttribute("type", "submit")
+    await expect(name).toHaveCSS("border-radius", "16px")
+    await expect(submit).toHaveCSS("background-color", /oklab/)
+  })
+
+  test("home link-buttons retain their route destinations", async ({ page }) => {
+    await page.goto("/")
+
+    await expect(page.getByRole("link", { name: "See today’s bake" })).toHaveAttribute(
+      "href",
+      "/menu/",
+    )
+    await expect(page.getByRole("link", { name: "Plan a visit" })).toHaveAttribute(
+      "href",
+      "/visit/",
+    )
+  })
+
   test("journal cards navigate into nested child routes", async ({ page }) => {
     await page.goto("/journal/")
     await page.getByRole("link", { name: "Read the note" }).first().click()

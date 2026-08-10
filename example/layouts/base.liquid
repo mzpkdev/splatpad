@@ -24,13 +24,9 @@
                 {% assign is_current = true %}
               {% endif %}
               <li>
-                <a
-                  class="rounded-full px-3 py-2 transition-colors hover:bg-[#f4e6d2] {% if is_current %}bg-[#302b27] text-white{% else %}text-[#62584f]{% endif %}"
-                  href="{{ link.href }}"
-                  {% if is_current %}aria-current="page"{% endif %}
-                >
+                {% component "nav-link", href: link.href, current: is_current %}
                   {{ link.label }}
-                </a>
+                {% endcomponent %}
               </li>
             {% endfor %}
           </ul>

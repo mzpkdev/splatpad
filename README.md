@@ -21,6 +21,46 @@ The suffixes are aliases for the same route convention. Defining both
 `pages/about.html` and `pages/about.liquid` is a route collision and fails with
 both source files named.
 
+## Components
+
+Reusable components live in `components/*.liquid`. Invoke one with a quoted
+name and named props, then provide its default body and any named slots:
+
+```liquid
+{% component "menu-card", name: item.name, mark: item.mark, color: item.color %}
+  {{ item.description }}
+  {% slot "price" %}{{ item.price }}{% endslot %}
+{% endcomponent %}
+```
+
+The component reads props directly and renders slot content with `yield`:
+
+```liquid
+<h3>{{ name }}</h3>
+<div>{% yield %}</div>
+<p>{% yield "price" %}</p>
+```
+
+Each component template has an isolated scope, so every value it needs must be
+passed as an explicit prop. It cannot read other variables from its caller.
+Slot bodies still evaluate in the caller's scope. Components can invoke other
+components, and a named `yield` renders nothing when its slot was not supplied.
+
+The example site keeps its component catalog small and live. Every primitive is
+rendered on a real route:
+
+- Actions and navigation: `button`, `link-button`, and `nav-link` appear on the
+  [home page](example/pages/index.liquid),
+  [visit page](example/pages/visit.liquid), and
+  [shared navigation](example/layouts/base.liquid).
+- Content and feedback: `badge`, `card`, and `alert` appear on the home,
+  [journal](example/pages/journal/index.liquid), and
+  [menu](example/pages/menu.liquid) routes.
+- Forms: `field`, `input`, `textarea`, `select`, and `checkbox` build the visit
+  form.
+- Menu composition: `menu-card` invokes `menu-mark` and `card` for each featured
+  item on the home page.
+
 Adding, editing, renaming, or deleting a page template updates the running
 development server without a restart. Broken Liquid or JSON is shown through
 Vite's error overlay and reloads after it is fixed. `data/site.json` supplies

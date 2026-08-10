@@ -1,0 +1,8 @@
+<article
+  class="flex h-full flex-col rounded-[2rem] p-6 {% if variant == "tinted" %}bg-[#f4e6d2]{% elsif variant == "outlined" %}border border-[#302b27]/15 bg-transparent{% else %}bg-[#fffaf1] shadow-[0_12px_30px_rgba(48,43,39,0.06)]{% endif %}"
+  {% if label %}data-frame="{{ label | escape }}"{% endif %}
+>
+  <header class="empty:hidden">{% yield "header" %}</header>
+  <div>{% yield %}</div>
+  <footer class="mt-auto pt-8 empty:hidden">{% yield "footer" %}</footer>
+</article>

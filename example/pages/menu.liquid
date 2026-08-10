@@ -29,6 +29,10 @@
         </section>
       {% endfor %}
     </div>
-    <p class="mt-14 rounded-3xl bg-[#dbe5cb] p-6 text-center font-semibold" data-frame="Seasonal menu note">Our case changes with the season. Ask us what just came out of the oven.</p>
+    <div class="mt-14" data-frame="Seasonal menu note">
+      {% component "alert", label: "Seasonal menu note", variant: "info" %}
+        Our case changes with the season. Ask us what just came out of the oven.
+      {% endcomponent %}
+    </div>
   </main>
 {% endblock %}

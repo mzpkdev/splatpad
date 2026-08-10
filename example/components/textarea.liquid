@@ -1,0 +1,10 @@
+{% assign textarea_rows = rows | default: 4 %}
+<textarea
+  id="{{ id | escape }}"
+  name="{{ name | escape }}"
+  rows="{{ textarea_rows | escape }}"
+  class="min-h-32 w-full resize-y rounded-2xl border border-[#302b27]/20 bg-white px-4 py-3 text-[#302b27] outline-none placeholder:text-[#74685e]/70 focus:border-[#bd4828] focus:ring-2 focus:ring-[#bd4828]/20"
+  {% if placeholder %}placeholder="{{ placeholder | escape }}"{% endif %}
+  {% if required %}required{% endif %}
+  {% if described_by %}aria-describedby="{{ described_by | escape }}"{% endif %}
+>{{ value | escape }}</textarea>

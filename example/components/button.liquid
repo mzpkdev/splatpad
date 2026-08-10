@@ -1,0 +1,7 @@
+{% assign button_type = type | default: "button" %}
+<button
+  type="{{ button_type | escape }}"
+  class="inline-flex items-center justify-center rounded-full font-bold transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bd4828] {% if variant == "secondary" %}border border-[#302b27]/20 bg-transparent px-6 py-3 text-[#302b27] hover:bg-[#f4e6d2]{% elsif variant == "quiet" %}bg-transparent px-3 py-2 text-[#b14f31] underline decoration-[#bd4828] decoration-2 underline-offset-4 hover:bg-[#f4e6d2]{% else %}bg-[#bd4828] px-6 py-3 text-white shadow-sm hover:-translate-y-0.5 hover:bg-[#a93f23]{% endif %}"
+>
+  {% yield %}
+</button>

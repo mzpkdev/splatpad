@@ -1,0 +1,7 @@
+<div class="grid gap-2">
+  <label class="font-bold text-[#302b27]" for="{{ id | escape }}">{{ label | escape }}</label>
+  {% yield %}
+  <div id="{{ id | escape }}-description" class="text-sm leading-5 text-[#74685e]">
+    {% yield "description" %}
+  </div>
+</div>

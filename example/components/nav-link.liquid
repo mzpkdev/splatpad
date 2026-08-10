@@ -1,0 +1,7 @@
+<a
+  href="{{ href | escape }}"
+  class="rounded-full px-3 py-2 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bd4828] {% if current %}bg-[#302b27] text-white{% else %}text-[#62584f] hover:bg-[#f4e6d2] hover:text-[#302b27]{% endif %}"
+  {% if current %}aria-current="page"{% endif %}
+>
+  {% yield %}
+</a>
