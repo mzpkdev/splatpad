@@ -1,6 +1,16 @@
 import { Background, BackgroundVariant, Controls, ReactFlow } from "@xyflow/react"
 import type { Node, NodeProps, NodeTypes, ReactFlowInstance } from "@xyflow/react"
-import { Box, ChevronRight, File, Hand, Image, MousePointer2, Type } from "lucide-react"
+import {
+  ArrowRight,
+  Box,
+  ChevronRight,
+  Component as ComponentIcon,
+  File,
+  Hand,
+  Image,
+  MousePointer2,
+  Type,
+} from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 import { createRoot } from "react-dom/client"
@@ -73,15 +83,17 @@ const readDesignerSession = (): DesignerSession => {
 
 interface InspectedElement {
   className: string
+  componentName?: string
   direction: "ltr" | "rtl"
   element: Element
   route: string
   writingMode: string
 }
 
-type OutlineKind = "frame" | "svg" | "text"
+type OutlineKind = "component" | "frame" | "svg" | "text"
 
 interface OutlineItem {
+  componentName?: string
   depth: number
   element: Element
   id: string
@@ -105,7 +117,10 @@ interface PageNodeData extends Record<string, unknown> {
   onPanMove: (position: { x: number; y: number }) => void
   onPanStart: (position: { x: number; y: number }) => void
   onRegisterSelectionClear: (route: string, clear: (() => void) | undefined) => void
-  onRegisterOutlineSelect: (route: string, select: ((element: Element) => void) | undefined) => void
+  onRegisterOutlineSelect: (
+    route: string,
+    select: ((element: Element, componentName?: string) => void) | undefined,
+  ) => void
   route: string
   selectedRoute: string | undefined
   selectionGeneration: number
@@ -133,6 +148,27 @@ type DesignNode = PageNode | CatalogGroupNode | CatalogSurfaceNode
 const overlayAttribute = "data-splatpad-inspector-overlay"
 const inspectionClickStreakMs = 500
 const inspectionClickMovement = 4
+const componentMarkerPattern = /^splatpad-component:(start|end):(.+)$/
+
+const readComponentMarker = (
+  node: ChildNode,
+): { name: string; phase: "end" | "start" } | undefined => {
+  if (node.nodeType !== 8) {
+    return undefined
+  }
+  const match = componentMarkerPattern.exec(node.nodeValue ?? "")
+  if (match === null) {
+    return undefined
+  }
+  try {
+    return {
+      name: decodeURIComponent(match[2] ?? ""),
+      phase: match[1] === "start" ? "start" : "end",
+    }
+  } catch {
+    return undefined
+  }
+}
 
 const documentHeight = (document: Document): number => {
   const body = document.body
@@ -202,6 +238,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const hoveredElement = useRef<Element | undefined>(undefined)
   const hitElement = useRef<Element | undefined>(undefined)
   const lastInspectionClick = useRef<number | undefined>(undefined)
+  const selectedComponentName = useRef<string | undefined>(undefined)
   const selectedElement = useRef<Element | undefined>(undefined)
   const middlePan = useRef<{ capture: HTMLDivElement; pointerId: number } | undefined>(undefined)
   const primaryInspection = useRef<
@@ -217,11 +254,12 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const disconnectSelectionRefresh = useRef<() => void>(() => undefined)
   const disconnectOutline = useRef<() => void>(() => undefined)
   const connectSelectionRefresh = useRef<(element: Element) => void>(() => undefined)
-  const outlineIds = useRef(new WeakMap<Element, string>())
+  const componentNames = useRef(new WeakMap<Element, string>())
+  const outlineIds = useRef(new WeakMap<ChildNode, string>())
   const nextOutlineId = useRef(0)
 
   const inspectElement = useCallback(
-    (element: Element, select?: () => void): void => {
+    (element: Element, select?: () => void, componentName?: string): void => {
       const document = frameRef.current?.contentDocument
       if (
         document === null ||
@@ -235,6 +273,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       onInspect(
         {
           className: element.getAttribute("class") ?? "",
+          componentName: componentName ?? componentNames.current.get(element),
           direction: computedStyle?.direction === "rtl" ? "rtl" : "ltr",
           element,
           route,
@@ -247,17 +286,22 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   )
 
   const selectOutlineElement = useCallback(
-    (element: Element): void => {
+    (element: Element, componentName?: string): void => {
       if (!element.isConnected) {
         return
       }
-      inspectElement(element, () => {
-        hitElement.current = element
-        lastInspectionClick.current = undefined
-        selectedElement.current = element
-        connectSelectionRefresh.current(element)
-        updateOverlays.current()
-      })
+      inspectElement(
+        element,
+        () => {
+          hitElement.current = element
+          lastInspectionClick.current = undefined
+          selectedComponentName.current = componentName
+          selectedElement.current = element
+          connectSelectionRefresh.current(element)
+          updateOverlays.current()
+        },
+        componentName,
+      )
     },
     [inspectElement],
   )
@@ -309,30 +353,93 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       }
       const refreshOutline = (): void => {
         outlineFrame = undefined
-        const elements =
-          document.body === null ? [] : [document.body, ...document.body.querySelectorAll("*")]
-        const described = elements
-          .map(describe)
-          .filter((item): item is Omit<OutlineItem, "depth" | "id"> => item !== undefined)
-        const qualifying = new Set(described.map(({ element }) => element))
-        const items = described.map(({ element, kind, label }) => {
-          let depth = 0
-          for (
-            let ancestor = element.parentElement;
-            ancestor !== null;
-            ancestor = ancestor.parentElement
-          ) {
-            if (qualifying.has(ancestor)) {
-              depth += 1
+        componentNames.current = new WeakMap<Element, string>()
+        const activeComponents: Array<{
+          element?: Element
+          marker: ChildNode
+          name: string
+        }> = []
+        const componentInstances: typeof activeComponents = []
+        const described: Array<{
+          componentName?: string
+          depth: number
+          element?: Element
+          kind: OutlineKind
+          label: string
+          node: ChildNode
+        }> = []
+        const visitChildren = (parent: Element, qualifyingDepth: number): void => {
+          for (const child of parent.childNodes) {
+            const marker = readComponentMarker(child)
+            if (marker?.phase === "start") {
+              const component = { marker: child, name: marker.name }
+              described.push({
+                componentName: marker.name,
+                depth: qualifyingDepth + activeComponents.length,
+                kind: "component",
+                label: marker.name,
+                node: child,
+              })
+              activeComponents.push(component)
+              componentInstances.push(component)
+              continue
             }
+            if (marker?.phase === "end") {
+              let index = activeComponents.length - 1
+              while (index >= 0 && activeComponents[index]?.name !== marker.name) {
+                index -= 1
+              }
+              if (index >= 0) {
+                activeComponents.splice(index)
+              }
+              continue
+            }
+            if (!(child instanceof frameWindow.Element)) {
+              continue
+            }
+            for (const component of activeComponents) {
+              component.element ??= child
+            }
+            const activeComponent = activeComponents.at(-1)
+            if (activeComponent !== undefined) {
+              componentNames.current.set(child, activeComponent.name)
+            }
+            const item = describe(child)
+            if (item !== undefined) {
+              described.push({
+                ...item,
+                depth: qualifyingDepth + activeComponents.length,
+                node: child,
+              })
+            }
+            visitChildren(child, qualifyingDepth + (item === undefined ? 0 : 1))
           }
-          let id = outlineIds.current.get(element)
+        }
+        if (document.body !== null) {
+          const bodyItem = describe(document.body)
+          if (bodyItem !== undefined) {
+            described.push({ ...bodyItem, depth: 0, node: document.body })
+          }
+          visitChildren(document.body, bodyItem === undefined ? 0 : 1)
+        }
+        const componentElements = new Map<ChildNode, Element>()
+        for (const component of componentInstances) {
+          if (component.element !== undefined) {
+            componentElements.set(component.marker, component.element)
+          }
+        }
+        const items = described.flatMap(({ componentName, depth, element, kind, label, node }) => {
+          const target = element ?? componentElements.get(node) ?? node.parentElement
+          if (target === null || target === undefined) {
+            return []
+          }
+          let id = outlineIds.current.get(node)
           if (id === undefined) {
             id = `${route}:${nextOutlineId.current}`
             nextOutlineId.current += 1
-            outlineIds.current.set(element, id)
+            outlineIds.current.set(node, id)
           }
-          return { depth, element, id, kind, label }
+          return [{ componentName, depth, element: target, id, kind, label }]
         })
         onOutline(route, items)
       }
@@ -366,6 +473,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     hoveredElement.current = undefined
     hitElement.current = undefined
     lastInspectionClick.current = undefined
+    selectedComponentName.current = undefined
     selectedElement.current = undefined
     primaryInspection.current = undefined
     updateOverlays.current()
@@ -375,6 +483,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     disconnectSelectionRefresh.current()
     hitElement.current = undefined
     lastInspectionClick.current = undefined
+    selectedComponentName.current = undefined
     selectedElement.current = undefined
     primaryInspection.current = undefined
     updateOverlays.current()
@@ -462,7 +571,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           refreshFrame = frameWindow.requestAnimationFrame(() => {
             refreshFrame = undefined
             if (element === selectedElement.current && element.isConnected) {
-              inspectElement(element)
+              inspectElement(element, undefined, selectedComponentName.current)
             }
           })
         }
@@ -729,6 +838,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         inspectElement(nextSelection, () => {
           hitElement.current = candidate.element
           lastInspectionClick.current = event.timeStamp
+          selectedComponentName.current = componentNames.current.get(nextSelection)
           selectedElement.current = nextSelection
           watchSelection(nextSelection)
           updateOverlayPositions()
@@ -843,6 +953,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     if (data.selectedRoute !== route) {
       disconnectSelectionRefresh.current()
       selectedElement.current = undefined
+      selectedComponentName.current = undefined
       hitElement.current = undefined
       lastInspectionClick.current = undefined
       updateOverlays.current()
@@ -860,7 +971,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     }
     const refreshFrame = requestAnimationFrame(() => {
       if (element === selectedElement.current && element.isConnected) {
-        inspectElement(element)
+        inspectElement(element, undefined, selectedComponentName.current)
       }
     })
     return () => cancelAnimationFrame(refreshFrame)
@@ -1076,10 +1187,12 @@ const SemanticCard = ({
 
 const ElementInspector = ({
   inspection,
+  onOpenComponent,
   viewport,
   viewportOptions,
 }: {
   inspection: InspectedElement
+  onOpenComponent: (name: string) => void
   viewport: ViewportCondition
   viewportOptions: ViewportOption[]
 }) => {
@@ -1141,6 +1254,26 @@ const ElementInspector = ({
           <span>{inspection.className.split(/\s+/).filter(Boolean).length} authored classes</span>
         </div>
       </header>
+      {inspection.componentName === undefined ? null : (
+        <section aria-label="Component instance" className="designer-inspector__component">
+          <div>
+            <span>Component</span>
+            <strong>{inspection.componentName}</strong>
+          </div>
+          <button
+            aria-label={`Open ${inspection.componentName} component`}
+            onClick={() => {
+              if (inspection.componentName !== undefined) {
+                onOpenComponent(inspection.componentName)
+              }
+            }}
+            type="button"
+          >
+            <span>View component</span>
+            <ArrowRight aria-hidden="true" />
+          </button>
+        </section>
+      )}
       {inspectionError === undefined ? null : (
         <div
           className="designer-inspector__message designer-inspector__message--error"
@@ -1370,8 +1503,14 @@ const Designer = () => {
   >(undefined)
   const fittedRoutes = useRef("")
   const selectionClears = useRef(new Map<string, () => void>())
-  const outlineSelectors = useRef(new Map<string, (element: Element) => void>())
-  const pendingOutlineSelection = useRef<{ element: Element; route: string } | undefined>(undefined)
+  const outlineSelectors = useRef(
+    new Map<string, (element: Element, componentName?: string) => void>(),
+  )
+  const pendingOutlineSelection = useRef<
+    { componentName?: string; element: Element; route: string } | undefined
+  >(undefined)
+  const componentFocusStarted = useRef(false)
+  const pendingComponentFocus = useRef<string | undefined>(undefined)
   const viewportOption = viewportOptions.find(({ condition }) => condition === viewport)
   const designItems = useMemo<DesignItem[]>(
     () =>
@@ -1522,7 +1661,10 @@ const Designer = () => {
   }, [])
 
   const registerOutlineSelect = useCallback(
-    (route: string, select: ((element: Element) => void) | undefined): void => {
+    (
+      route: string,
+      select: ((element: Element, componentName?: string) => void) | undefined,
+    ): void => {
       if (select === undefined) {
         outlineSelectors.current.delete(route)
       } else {
@@ -1553,6 +1695,8 @@ const Designer = () => {
       setComponentSizes({})
       setOutlines({})
       setActiveRoute(undefined)
+      componentFocusStarted.current = false
+      pendingComponentFocus.current = undefined
       fittedRoutes.current = ""
       setView(nextView)
     },
@@ -1570,6 +1714,8 @@ const Designer = () => {
       return
     }
 
+    componentFocusStarted.current = false
+    pendingComponentFocus.current = undefined
     iframePan.current = { pointer, viewport: instance.getViewport() }
   }, [])
 
@@ -1697,6 +1843,25 @@ const Designer = () => {
     [clearSelectedElement],
   )
 
+  const openComponent = useCallback(
+    (name: string): void => {
+      const component = components.find((candidate) => candidate.name === name)
+      if (component === undefined) {
+        return
+      }
+      clearSelectedElement()
+      setHeights({})
+      setComponentSizes({})
+      setOutlines({})
+      fittedRoutes.current = ""
+      componentFocusStarted.current = false
+      pendingComponentFocus.current = component.route
+      setActiveRoute(component.route)
+      setView("components")
+    },
+    [clearSelectedElement, components],
+  )
+
   const focusOutlineElement = useCallback((route: string, element: Element): void => {
     const instance = flow.current
     const node = instance?.getNode(route)
@@ -1732,10 +1897,14 @@ const Designer = () => {
         return
       }
       if (tool === "inspect") {
-        outlineSelectors.current.get(route)?.(item.element)
+        outlineSelectors.current.get(route)?.(item.element, item.componentName)
         return
       }
-      pendingOutlineSelection.current = { element: item.element, route }
+      pendingOutlineSelection.current = {
+        componentName: item.componentName,
+        element: item.element,
+        route,
+      }
       setTool("inspect")
       setSpacePanning(false)
     },
@@ -1753,7 +1922,7 @@ const Designer = () => {
         return
       }
       pendingOutlineSelection.current = undefined
-      outlineSelectors.current.get(pending.route)?.(pending.element)
+      outlineSelectors.current.get(pending.route)?.(pending.element, pending.componentName)
     })
     return () => cancelAnimationFrame(frame)
   }, [activeRoute, tool])
@@ -1898,10 +2067,40 @@ const Designer = () => {
   ])
 
   useEffect(() => {
+    const pendingRoute = pendingComponentFocus.current
+    const allComponentsMeasured = designItems.every(
+      ({ route }) => heights[route] !== undefined && componentSizes[route] !== undefined,
+    )
+    if (view !== "components" || pendingRoute === undefined || !allComponentsMeasured) {
+      return
+    }
+    if (!componentFocusStarted.current) {
+      componentFocusStarted.current = true
+      focusRoute(pendingRoute)
+    }
+    const timer = window.setTimeout(() => {
+      if (pendingComponentFocus.current !== pendingRoute) {
+        return
+      }
+      fittedRoutes.current = `${view}\n${viewport}\n${designItems
+        .map(({ route }) => route)
+        .join("\n")}`
+      componentFocusStarted.current = false
+      pendingComponentFocus.current = undefined
+      focusRoute(pendingRoute)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [componentSizes, designItems, focusRoute, heights, nodes, view, viewport])
+
+  useEffect(() => {
     const routeKey = `${view}\n${viewport}\n${designItems.map(({ route }) => route).join("\n")}`
     const allFramesMeasured = designItems.every(({ route }) => heights[route] !== undefined)
 
-    if (!allFramesMeasured || fittedRoutes.current === routeKey) {
+    if (
+      !allFramesMeasured ||
+      fittedRoutes.current === routeKey ||
+      pendingComponentFocus.current !== undefined
+    ) {
       return
     }
 
@@ -1984,7 +2183,11 @@ const Designer = () => {
                 <button
                   aria-current={route === activeRoute ? "page" : undefined}
                   key={route}
-                  onClick={() => focusRoute(route)}
+                  onClick={() => {
+                    componentFocusStarted.current = false
+                    pendingComponentFocus.current = undefined
+                    focusRoute(route)
+                  }}
                   style={{ paddingLeft: 12 + depth * 14 }}
                   title={
                     preview === undefined
@@ -2016,7 +2219,14 @@ const Designer = () => {
             <nav aria-label="Page outline">
               <div role="tree">
                 {(activeRoute === undefined ? [] : (outlines[activeRoute] ?? [])).map((item) => {
-                  const Icon = item.kind === "frame" ? Box : item.kind === "svg" ? Image : Type
+                  const Icon =
+                    item.kind === "component"
+                      ? ComponentIcon
+                      : item.kind === "frame"
+                        ? Box
+                        : item.kind === "svg"
+                          ? Image
+                          : Type
                   return (
                     <button
                       aria-keyshortcuts="Shift+Enter"
@@ -2141,6 +2351,7 @@ const Designer = () => {
           ) : (
             <ElementInspector
               inspection={inspection}
+              onOpenComponent={openComponent}
               viewport={viewport}
               viewportOptions={viewportOptions}
             />

@@ -81,6 +81,26 @@ describe("liquidPlugin", () => {
     await expect(renderFor(plugin, "/")).resolves.toBe("<strong>Splatpad: Home</strong>")
   })
 
+  it("annotates component instances only in design mode", async () => {
+    await fs.writeFile(path.join(siteRoot, "components/greeting.liquid"), "<strong>Hello</strong>")
+    await fs.writeFile(
+      path.join(siteRoot, "pages/index.liquid"),
+      `{% component "greeting" %}{% endcomponent %}`,
+    )
+
+    await expect(
+      renderFor(
+        liquidPlugin({ design: true, root: siteRoot, routes: discoverSiteRoutes(siteRoot) }),
+        "/",
+      ),
+    ).resolves.toBe(
+      "<!--splatpad-component:start:greeting--><strong>Hello</strong><!--splatpad-component:end:greeting-->",
+    )
+    await expect(
+      renderFor(liquidPlugin({ root: siteRoot, routes: discoverSiteRoutes(siteRoot) }), "/"),
+    ).resolves.toBe("<strong>Hello</strong>")
+  })
+
   it.each([
     ["about.html", "/about/"],
     ["contact.liquid.html", "/contact/"],

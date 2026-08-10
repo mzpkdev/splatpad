@@ -97,7 +97,7 @@ export const liquidPlugin = ({
     ...liquidOptions,
     root: path.resolve(siteRoot, "components"),
   })
-  registerComponentDialect(engine, componentEngine)
+  registerComponentDialect(engine, componentEngine, { annotateComponents: design })
   let reloadTimer: ReturnType<typeof setTimeout> | undefined
 
   const readSiteData = async (): Promise<{

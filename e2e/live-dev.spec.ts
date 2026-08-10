@@ -294,12 +294,15 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   page,
 }) => {
   const outlineRoute = path.join(siteRoot, "pages", "outline", "index.liquid")
+  const outlineComponent = path.join(siteRoot, "components", "outline-widget.liquid")
   await fs.mkdir(path.dirname(outlineRoute), { recursive: true })
+  await fs.writeFile(outlineComponent, '<button class="outline-component">{% yield %}</button>')
   await fs.writeFile(
     outlineRoute,
     `<main data-frame="Hero frame" class="frame-target">
       <h1 class="text-target">Scoped outline text</h1>
       <svg aria-label="Bakery mark" class="svg-target" viewBox="0 0 10 10"><title>Vector title</title><circle cx="5" cy="5" r="4" /></svg>
+      {% component "outline-widget" %}Outline action{% endcomponent %}
     </main>`,
   )
 
@@ -343,6 +346,10 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   await expect(
     outline.locator('[data-outline-kind="text"]', { hasText: "Vector title" }),
   ).toHaveCount(0)
+  const componentOutlineItem = outline.locator('[data-outline-kind="component"]', {
+    hasText: "outline-widget",
+  })
+  await expect(componentOutlineItem).toBeVisible()
 
   await preview(page, "/outline/").evaluate((element) => {
     const frame = element as HTMLIFrameElement
@@ -378,6 +385,43 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   await outline.locator('[data-outline-kind="text"]', { hasText: "Scoped outline text" }).click()
   await expectInspectorClassName(page, "text-target")
 
+  await componentOutlineItem.click()
+  await expect(page.getByRole("region", { name: "Component instance" })).toContainText(
+    "outline-widget",
+  )
+  await page.getByRole("button", { name: "Open outline-widget component" }).click()
+  await expect(page.getByRole("button", { name: "Components", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  const componentFrame = page.locator(
+    '.page-frame[data-route="/__splatpad/design/components/outline-widget/"]',
+  )
+  await expect(componentFrame).toHaveClass(/page-frame--active/)
+  await expect
+    .poll(() =>
+      page.locator(".designer-canvas").evaluate((canvas, route) => {
+        const frame = canvas.querySelector<HTMLElement>(`.page-frame[data-route="${route}"]`)
+        if (frame === null) {
+          return false
+        }
+        const canvasBounds = canvas.getBoundingClientRect()
+        const frameBounds = frame.getBoundingClientRect()
+        return (
+          Math.abs(
+            canvasBounds.left + canvasBounds.width / 2 - (frameBounds.left + frameBounds.width / 2),
+          ) < 4 &&
+          Math.abs(
+            canvasBounds.top + canvasBounds.height / 2 - (frameBounds.top + frameBounds.height / 2),
+          ) < 4
+        )
+      }, "/__splatpad/design/components/outline-widget/"),
+    )
+    .toBe(true)
+
+  await page.getByRole("button", { name: "Pages", exact: true }).click()
+  await page.getByRole("button", { name: "/outline/", exact: true }).click()
+
   await page.getByRole("button", { name: "/menu/", exact: true }).click()
   await expect(outline.getByText("Scoped outline text", { exact: true })).toHaveCount(0)
 
@@ -391,6 +435,7 @@ test("lists and selects the active page's frames, SVGs, and direct text parents"
   await expectInspectorClassName(page, "replacement-target")
 
   await fs.rm(path.dirname(outlineRoute), { recursive: true })
+  await fs.rm(outlineComponent)
 })
 
 const panTool = (page: Page): Locator => page.getByRole("button", { name: "Pan tool (V)" })

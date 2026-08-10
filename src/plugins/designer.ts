@@ -482,6 +482,7 @@ button, select { font: inherit; }
 .designer-routes button[aria-selected="true"] svg { color: #a78bfa; }
 .designer-outline button[data-outline-kind="svg"] svg { color: #38bdf8; }
 .designer-outline button[data-outline-kind="text"] svg { color: #a1a1aa; }
+.designer-outline button[data-outline-kind="component"] svg { color: #a78bfa; }
 .designer-outline [role="tree"] { display: grid; min-width: 0; gap: 2px; }
 .designer-routes button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .designer-routes__empty { margin: 2px 4px; color: #71717a; line-height: 1.5; }
@@ -640,6 +641,44 @@ button, select { font: inherit; }
 .designer-inspector__element { display: grid; gap: 2px; margin-top: 9px; }
 .designer-inspector__element strong { color: #e4e4e7; font-size: 11px; }
 .designer-inspector__element span { color: #71717a; font-size: 9px; }
+.designer-inspector__component {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #3f3f46;
+  background: rgb(139 92 246 / 8%);
+}
+.designer-inspector__component > div { display: grid; min-width: 0; gap: 2px; }
+.designer-inspector__component > div span {
+  color: #a1a1aa;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.designer-inspector__component strong {
+  overflow: hidden;
+  color: #ddd6fe;
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.designer-inspector__component button {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #7c3aed;
+  border-radius: 5px;
+  background: rgb(124 58 237 / 16%);
+  color: #ddd6fe;
+  cursor: pointer;
+  font-size: 9px;
+}
+.designer-inspector__component button:hover { background: rgb(124 58 237 / 28%); }
+.designer-inspector__component button:focus-visible { outline: 2px solid #a78bfa; }
+.designer-inspector__component button svg { width: 12px; height: 12px; }
 .designer-inspector__message { color: #a1a1aa; }
 .designer-inspector__message--error { color: #fca5a5; }
 .designer-inspector__message--error p { margin: 0; }
