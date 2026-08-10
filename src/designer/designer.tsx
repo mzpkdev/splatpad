@@ -101,16 +101,27 @@ interface OutlineItem {
   label: string
 }
 
+interface SelectedOutlineItem {
+  id: string
+  kind: OutlineKind
+  route: string
+}
+
 interface PageNodeData extends Record<string, unknown> {
   contentHeight: number
   inspecting: boolean
   interactive: boolean
   kind: "component" | "page"
   label: string
+  measurementWidth: number
   preview?: ComponentRecord["preview"]
   onHeight: (route: string, height: number) => void
   onSize: (route: string, size: { height: number; width: number }) => void
-  onInspect: (inspection: InspectedElement, select?: () => void) => void
+  onInspect: (
+    inspection: InspectedElement,
+    select?: () => void,
+    outlineItem?: SelectedOutlineItem,
+  ) => void
   onInvalidate: (route: string) => void
   onOutline: (route: string, items: OutlineItem[]) => void
   onPanEnd: () => void
@@ -119,7 +130,7 @@ interface PageNodeData extends Record<string, unknown> {
   onRegisterSelectionClear: (route: string, clear: (() => void) | undefined) => void
   onRegisterOutlineSelect: (
     route: string,
-    select: ((element: Element, componentName?: string) => void) | undefined,
+    select: ((item: OutlineItem) => void) | undefined,
   ) => void
   route: string
   selectedRoute: string | undefined
@@ -182,39 +193,463 @@ const documentHeight = (document: Document): number => {
   )
 }
 
-const componentDocumentHeight = (document: Document): number => {
+const pixelValue = (value: string): number | undefined => {
+  if (value === "auto" || value === "none" || value === "normal") {
+    return undefined
+  }
+  const number = Number.parseFloat(value)
+  return Number.isFinite(number) ? number : undefined
+}
+
+const lengthPercentageValue = (value: string, basis: number): number => {
+  if (value.endsWith("%")) {
+    return ((Number.parseFloat(value) || 0) / 100) * basis
+  }
+  return pixelValue(value) ?? 0
+}
+
+const transformedBoxExtent = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  style: CSSStyleDeclaration,
+): { bottom: number; right: number } => {
+  if (style.transform === "none") {
+    return { bottom: y + height, right: x + width }
+  }
+  const [originXValue = "0", originYValue = "0"] = style.transformOrigin.split(" ")
+  const originX = lengthPercentageValue(originXValue, width)
+  const originY = lengthPercentageValue(originYValue, height)
+  const transform = new DOMMatrixReadOnly(style.transform)
+  const corners = [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ].map(([cornerX = 0, cornerY = 0]) => {
+    const point = new DOMPoint(cornerX - originX, cornerY - originY).matrixTransform(transform)
+    const perspective = point.w === 0 ? 1 : point.w
+    return {
+      x: x + originX + point.x / perspective,
+      y: y + originY + point.y / perspective,
+    }
+  })
+  return {
+    bottom: Math.max(...corners.map((point) => point.y)),
+    right: Math.max(...corners.map((point) => point.x)),
+  }
+}
+
+const generatedBoxBounds = (
+  element: Element,
+  pseudo: "::after" | "::before",
+): { bottom: number; right: number } | undefined => {
+  const frameWindow = element.ownerDocument.defaultView
+  if (frameWindow === null) {
+    return undefined
+  }
+  const style = frameWindow.getComputedStyle(element, pseudo)
+  if (style.content === "none" || style.content === "normal" || style.display === "none") {
+    return undefined
+  }
+
+  const contentWidth = pixelValue(style.width)
+  const contentHeight = pixelValue(style.height)
+  if (contentWidth === undefined || contentHeight === undefined) {
+    return undefined
+  }
+  const horizontalExtras =
+    (pixelValue(style.paddingLeft) ?? 0) +
+    (pixelValue(style.paddingRight) ?? 0) +
+    (pixelValue(style.borderLeftWidth) ?? 0) +
+    (pixelValue(style.borderRightWidth) ?? 0)
+  const verticalExtras =
+    (pixelValue(style.paddingTop) ?? 0) +
+    (pixelValue(style.paddingBottom) ?? 0) +
+    (pixelValue(style.borderTopWidth) ?? 0) +
+    (pixelValue(style.borderBottomWidth) ?? 0)
+  const width = contentWidth + (style.boxSizing === "border-box" ? 0 : horizontalExtras)
+  const height = contentHeight + (style.boxSizing === "border-box" ? 0 : verticalExtras)
+  const marginLeft = pixelValue(style.marginLeft) ?? 0
+  const marginTop = pixelValue(style.marginTop) ?? 0
+
+  let containingBounds: DOMRect
+  let containingWidth: number
+  let containingHeight: number
+  if (style.position === "fixed") {
+    containingBounds = new DOMRect(0, 0, frameWindow.innerWidth, frameWindow.innerHeight)
+    containingWidth = frameWindow.innerWidth
+    containingHeight = frameWindow.innerHeight
+  } else if (style.position === "absolute") {
+    let containingElement: Element | null = element
+    while (
+      containingElement !== null &&
+      frameWindow.getComputedStyle(containingElement).position === "static"
+    ) {
+      containingElement = containingElement.parentElement
+    }
+    containingElement ??= element.ownerDocument.documentElement
+    const bounds = containingElement.getBoundingClientRect()
+    containingBounds = new DOMRect(
+      bounds.left + (containingElement as HTMLElement).clientLeft,
+      bounds.top + (containingElement as HTMLElement).clientTop,
+      (containingElement as HTMLElement).clientWidth,
+      (containingElement as HTMLElement).clientHeight,
+    )
+    containingWidth = containingBounds.width
+    containingHeight = containingBounds.height
+  } else {
+    return undefined
+  }
+
+  const left = pixelValue(style.left)
+  const right = pixelValue(style.right)
+  const top = pixelValue(style.top)
+  const bottom = pixelValue(style.bottom)
+  const x =
+    containingBounds.left +
+    (left ?? (right === undefined ? 0 : containingWidth - right - width)) +
+    marginLeft
+  const y =
+    containingBounds.top +
+    (top ?? (bottom === undefined ? 0 : containingHeight - bottom - height)) +
+    marginTop
+  return transformedBoxExtent(x, y, width, height, style)
+}
+
+const componentContentBounds = (document: Document): { bottom: number; right: number } => {
+  const body = document.body
+  if (body === null) {
+    return { bottom: 0, right: 0 }
+  }
+  const bodyBounds = body.getBoundingClientRect()
+  let bottom = bodyBounds.top
+  let right = bodyBounds.left
+  for (const element of [body, ...body.querySelectorAll("*")]) {
+    if (element.hasAttribute(overlayAttribute) || element.closest(`[${overlayAttribute}]`)) {
+      continue
+    }
+    const bounds = element.getBoundingClientRect()
+    bottom = Math.max(bottom, bounds.bottom)
+    right = Math.max(right, bounds.right)
+    for (const pseudo of ["::before", "::after"] as const) {
+      const generated = generatedBoxBounds(element, pseudo)
+      if (generated !== undefined) {
+        bottom = Math.max(bottom, generated.bottom)
+        right = Math.max(right, generated.right)
+      }
+    }
+  }
+  return { bottom, right }
+}
+
+const componentDocumentSize = (document: Document): { height: number; width: number } => {
+  const body = document.body
+  const root = document.documentElement
+  if (body === null || root === null) {
+    return { height: 1, width: 240 }
+  }
+  const style = document.defaultView?.getComputedStyle(body)
+  const paddingBottom = Number.parseFloat(style?.paddingBottom ?? "0")
+  const paddingRight = Number.parseFloat(style?.paddingRight ?? "0")
+  const bodyBounds = body.getBoundingClientRect()
+  const { bottom, right } = componentContentBounds(document)
+
+  const contentHeight = bottom - bodyBounds.top + paddingBottom
+  const contentWidth = right - bodyBounds.left + paddingRight
+  return {
+    height: Math.max(
+      1,
+      Math.ceil(body.offsetHeight),
+      Math.ceil(body.scrollHeight),
+      Math.ceil(root.scrollHeight),
+      Math.ceil(contentHeight),
+    ),
+    width: Math.max(
+      1,
+      Math.ceil(body.scrollWidth),
+      Math.ceil(root.scrollWidth),
+      Math.ceil(contentWidth),
+    ),
+  }
+}
+
+const componentRenderedHeight = (document: Document): number => {
   const body = document.body
   if (body === null) {
     return 1
   }
   const style = document.defaultView?.getComputedStyle(body)
-  const padding =
-    Number.parseFloat(style?.paddingTop ?? "0") + Number.parseFloat(style?.paddingBottom ?? "0")
-  const bounds = [...body.children].map((element) => element.getBoundingClientRect())
-  const contentHeight =
-    bounds.length === 0
-      ? 0
-      : Math.max(...bounds.map(({ bottom }) => bottom)) - Math.min(...bounds.map(({ top }) => top))
-  return Math.max(1, Math.ceil(body.offsetHeight), Math.ceil(contentHeight + padding))
+  const paddingBottom = Number.parseFloat(style?.paddingBottom ?? "0")
+  const bodyBounds = body.getBoundingClientRect()
+  const { bottom } = componentContentBounds(document)
+  return Math.max(
+    1,
+    Math.ceil(body.offsetHeight),
+    Math.ceil(bottom - bodyBounds.top + paddingBottom),
+  )
 }
 
-const componentDocumentWidth = (document: Document): number => {
-  const body = document.body
-  if (body === null) {
-    return 240
+const cssCanLoadResource = /(?:url|src|image-set|cross-fade)\s*\(/i
+
+const inertStyleDeclaration = (style: CSSStyleDeclaration): string =>
+  [...style]
+    .flatMap((property) => {
+      const value = style.getPropertyValue(property)
+      if (cssCanLoadResource.test(value)) {
+        return []
+      }
+      const priority = style.getPropertyPriority(property)
+      return [`${property}:${value}${priority === "" ? "" : ` !${priority}`}`]
+    })
+    .join(";")
+
+const inertCssRules = (rules: CSSRuleList): string =>
+  [...rules]
+    .flatMap((rule) => {
+      if (rule.type === CSSRule.IMPORT_RULE) {
+        return []
+      }
+      const style = (rule as CSSRule & { style?: CSSStyleDeclaration }).style
+      if (style !== undefined) {
+        const openingBrace = rule.cssText.indexOf("{")
+        const header = openingBrace < 0 ? "" : rule.cssText.slice(0, openingBrace)
+        return header === "" || cssCanLoadResource.test(header)
+          ? []
+          : [`${header}{${inertStyleDeclaration(style)}}`]
+      }
+      const nestedRules = (rule as CSSRule & { cssRules?: CSSRuleList }).cssRules
+      if (nestedRules !== undefined) {
+        const openingBrace = rule.cssText.indexOf("{")
+        const header = openingBrace < 0 ? "" : rule.cssText.slice(0, openingBrace)
+        return header === "" || cssCanLoadResource.test(header)
+          ? []
+          : [`${header}{${inertCssRules(nestedRules)}}`]
+      }
+      return cssCanLoadResource.test(rule.cssText) ? [] : [rule.cssText]
+    })
+    .join("\n")
+
+const inertDocumentCss = (document: Document): { css: string; needsComputedFallback: boolean } => {
+  const sheets = [...document.styleSheets, ...document.adoptedStyleSheets]
+  let needsComputedFallback = false
+  const css = sheets
+    .flatMap((sheet) => {
+      try {
+        return [inertCssRules(sheet.cssRules)]
+      } catch {
+        needsComputedFallback = true
+        return []
+      }
+    })
+    .join("\n")
+  return { css, needsComputedFallback }
+}
+
+const applyComputedStyleFallback = (sourceElements: Element[], probeDocument: Document): void => {
+  const sourceDocument = sourceElements[0]?.ownerDocument
+  if (sourceDocument === undefined) {
+    return
   }
-  const bodyStyle = document.defaultView?.getComputedStyle(body)
-  const padding =
-    Number.parseFloat(bodyStyle?.paddingLeft ?? "0") +
-    Number.parseFloat(bodyStyle?.paddingRight ?? "0")
-  const bounds = [...body.children].map((element) => element.getBoundingClientRect())
-  const contentWidth =
-    bounds.length === 0
-      ? body.scrollWidth
-      : Math.max(...bounds.map(({ right }) => right)) -
-        Math.min(...bounds.map(({ left }) => left)) +
-        padding
-  return Math.ceil(contentWidth)
+  const sourceWindow = sourceDocument.defaultView
+  const probeWindow = probeDocument.defaultView
+  if (sourceWindow === null || probeWindow === null) {
+    return
+  }
+
+  const pseudoRules: string[] = []
+  for (const [index, source] of sourceElements.entries()) {
+    const target = probeDocument.querySelector(`[data-splatpad-probe-id="${index}"]`)
+    if (target === null || !("style" in target)) {
+      continue
+    }
+    const sourceStyle = sourceWindow.getComputedStyle(source)
+    const targetStyle = probeWindow.getComputedStyle(target)
+    const targetDeclaration = (target as HTMLElement).style
+    for (const property of sourceStyle) {
+      const value = sourceStyle.getPropertyValue(property)
+      if (value !== targetStyle.getPropertyValue(property) && !cssCanLoadResource.test(value)) {
+        targetDeclaration.setProperty(property, value, "important")
+      }
+    }
+
+    for (const pseudo of ["::before", "::after"] as const) {
+      const sourcePseudo = sourceWindow.getComputedStyle(source, pseudo)
+      if (["none", "normal"].includes(sourcePseudo.content)) {
+        continue
+      }
+      const targetPseudo = probeWindow.getComputedStyle(target, pseudo)
+      const declarations = [...sourcePseudo]
+        .flatMap((property) => {
+          const value = sourcePseudo.getPropertyValue(property)
+          return value === targetPseudo.getPropertyValue(property) || cssCanLoadResource.test(value)
+            ? []
+            : [`${property}:${value} !important`]
+        })
+        .join(";")
+      if (declarations !== "") {
+        pseudoRules.push(`[data-splatpad-probe-id="${index}"]${pseudo}{${declarations}}`)
+      }
+    }
+  }
+  if (pseudoRules.length > 0) {
+    const style = probeDocument.createElement("style")
+    style.textContent = pseudoRules.join("\n")
+    probeDocument.head.append(style)
+  }
+}
+
+const resourceElementSelector = [
+  "applet",
+  "audio",
+  "embed",
+  "iframe",
+  "img",
+  'input[type="image" i]',
+  "object",
+  "picture",
+  "source",
+  "track",
+  "video",
+  "image",
+  "feImage",
+  "use",
+].join(",")
+
+const resourceAttributes = [
+  "archive",
+  "background",
+  "classid",
+  "code",
+  "codebase",
+  "data",
+  "href",
+  "manifest",
+  "poster",
+  "src",
+  "srcdoc",
+  "srcset",
+  "xlink:href",
+]
+
+const createComponentDocumentProbe = (
+  sourceDocument: Document,
+  measurementWidth: number,
+  onSize: (size: { height: number; width: number }) => void,
+): (() => void) => {
+  const hostDocument = sourceDocument.defaultView?.frameElement?.ownerDocument
+  const sourceRoot = sourceDocument.documentElement
+  if (hostDocument?.body === null || hostDocument?.body === undefined || sourceRoot === null) {
+    return () => undefined
+  }
+
+  const clonedRoot = sourceRoot.cloneNode(true) as HTMLElement
+  const sourceElements = [sourceRoot, ...sourceRoot.querySelectorAll("*")]
+  const clonedElements = [clonedRoot, ...clonedRoot.querySelectorAll("*")]
+  for (const [index, sourceElement] of sourceElements.entries()) {
+    const clonedElement = clonedElements[index]
+    if (clonedElement === undefined || !("style" in clonedElement)) {
+      continue
+    }
+    clonedElement.setAttribute("data-splatpad-probe-id", `${index}`)
+    const styledClone = clonedElement as HTMLElement
+    if (sourceElement instanceof sourceDocument.defaultView!.HTMLElement) {
+      styledClone.style.cssText = inertStyleDeclaration(sourceElement.style)
+    }
+    if (sourceElement.matches(resourceElementSelector)) {
+      const bounds = sourceElement.getBoundingClientRect()
+      styledClone.style.width = `${bounds.width}px`
+      styledClone.style.height = `${bounds.height}px`
+    }
+  }
+  for (const noscript of clonedRoot.querySelectorAll("noscript")) {
+    noscript.remove()
+  }
+  for (const script of clonedRoot.querySelectorAll("script")) {
+    script.remove()
+  }
+  for (const style of clonedRoot.querySelectorAll("style, link")) {
+    style.remove()
+  }
+  for (const resource of clonedRoot.querySelectorAll(resourceElementSelector)) {
+    for (const attribute of resourceAttributes) {
+      resource.removeAttribute(attribute)
+    }
+    if (resource.localName === "iframe") {
+      resource.setAttribute("sandbox", "")
+    }
+  }
+  for (const element of clonedRoot.querySelectorAll("*")) {
+    element.removeAttribute("background")
+    element.removeAttribute("manifest")
+    for (const attribute of element.attributes) {
+      if (
+        attribute.name.toLowerCase().startsWith("on") ||
+        cssCanLoadResource.test(attribute.value) ||
+        ((attribute.name === "href" || attribute.name === "src") &&
+          attribute.value.trimStart().toLowerCase().startsWith("javascript:"))
+      ) {
+        element.removeAttribute(attribute.name)
+      }
+    }
+  }
+  for (const refresh of clonedRoot.querySelectorAll('meta[http-equiv="refresh" i]')) {
+    refresh.remove()
+  }
+  const head = clonedRoot.querySelector("head")
+  const { css, needsComputedFallback } = inertDocumentCss(sourceDocument)
+  if (head !== null) {
+    const style = hostDocument.createElement("style")
+    style.textContent = css
+    head.prepend(style)
+  }
+
+  const probe = hostDocument.createElement("iframe")
+  probe.dataset.splatpadMeasurementProbe = ""
+  probe.setAttribute("aria-hidden", "true")
+  probe.setAttribute("sandbox", "allow-same-origin")
+  probe.tabIndex = -1
+  probe.style.cssText = `border:0;height:1px;left:-10000px;pointer-events:none;position:fixed;top:0;visibility:hidden;width:${measurementWidth}px`
+  let connected = true
+  const disconnect = (): void => {
+    connected = false
+    probe.remove()
+  }
+  probe.addEventListener(
+    "load",
+    () => {
+      const document = probe.contentDocument
+      if (
+        !connected ||
+        document === null ||
+        document.documentElement === null ||
+        document.body === null
+      ) {
+        disconnect()
+        return
+      }
+      if (needsComputedFallback) {
+        applyComputedStyleFallback(sourceElements, document)
+      }
+      void document.fonts.ready.then(() => {
+        if (!connected || probe.contentDocument !== document) {
+          return
+        }
+        const measured = componentDocumentSize(document)
+        const size = {
+          height: measured.height,
+          width: needsComputedFallback ? measurementWidth : measured.width,
+        }
+        disconnect()
+        onSize(size)
+      })
+    },
+    { once: true },
+  )
+  probe.srcdoc = `<!doctype html>${clonedRoot.outerHTML}`
+  hostDocument.body.append(probe)
+  return disconnect
 }
 
 const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
@@ -234,12 +669,15 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const interactionSurfaceRef = useRef<HTMLDivElement | null>(null)
   const measurementFrame = useRef<number | undefined>(undefined)
   const measurementGeneration = useRef(0)
+  const cancelScheduledMeasurement = useRef<() => void>(() => undefined)
+  const scheduleHeightMeasurement = useRef<() => void>(() => undefined)
   const disconnectMeasurement = useRef<() => void>(() => undefined)
   const hoveredElement = useRef<Element | undefined>(undefined)
   const hitElement = useRef<Element | undefined>(undefined)
   const lastInspectionClick = useRef<number | undefined>(undefined)
   const selectedComponentName = useRef<string | undefined>(undefined)
   const selectedElement = useRef<Element | undefined>(undefined)
+  const selectedOutlineSelection = useRef<SelectedOutlineItem | undefined>(undefined)
   const middlePan = useRef<{ capture: HTMLDivElement; pointerId: number } | undefined>(undefined)
   const primaryInspection = useRef<
     | {
@@ -252,14 +690,103 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   const updateOverlays = useRef<() => void>(() => undefined)
   const disconnectInspector = useRef<() => void>(() => undefined)
   const disconnectSelectionRefresh = useRef<() => void>(() => undefined)
+  const disconnectComponentOwnership = useRef<() => void>(() => undefined)
   const disconnectOutline = useRef<() => void>(() => undefined)
   const connectSelectionRefresh = useRef<(element: Element) => void>(() => undefined)
+  const reconcileComponentOwnership = useRef<(names: WeakMap<Element, string>) => void>(
+    () => undefined,
+  )
   const componentNames = useRef(new WeakMap<Element, string>())
   const outlineIds = useRef(new WeakMap<ChildNode, string>())
   const nextOutlineId = useRef(0)
 
+  const connectComponentOwnership = useCallback((frame: HTMLIFrameElement): void => {
+    disconnectComponentOwnership.current()
+    const document = frame.contentDocument
+    const frameWindow = document?.defaultView
+    const root = document?.documentElement
+    if (
+      document === null ||
+      document === undefined ||
+      frameWindow === null ||
+      frameWindow === undefined ||
+      root === null ||
+      root === undefined ||
+      frame.contentDocument !== document
+    ) {
+      componentNames.current = new WeakMap<Element, string>()
+      return
+    }
+
+    let ownershipFrame: number | undefined
+    const refreshOwnership = (): void => {
+      ownershipFrame = undefined
+      const names = new WeakMap<Element, string>()
+      const activeComponents: string[] = []
+      const visitChildren = (parent: Element): void => {
+        for (const child of parent.childNodes) {
+          const marker = readComponentMarker(child)
+          if (marker?.phase === "start") {
+            activeComponents.push(marker.name)
+            continue
+          }
+          if (marker?.phase === "end") {
+            let index = activeComponents.length - 1
+            while (index >= 0 && activeComponents[index] !== marker.name) {
+              index -= 1
+            }
+            if (index >= 0) {
+              activeComponents.splice(index)
+            }
+            continue
+          }
+          if (!(child instanceof frameWindow.Element)) {
+            continue
+          }
+          const componentName = activeComponents.at(-1)
+          if (componentName !== undefined) {
+            names.set(child, componentName)
+          }
+          visitChildren(child)
+        }
+      }
+      if (document.body !== null) {
+        visitChildren(document.body)
+      }
+      componentNames.current = names
+      reconcileComponentOwnership.current(names)
+    }
+    const scheduleOwnership = (): void => {
+      if (ownershipFrame === undefined) {
+        ownershipFrame = frameWindow.requestAnimationFrame(refreshOwnership)
+      }
+    }
+    const observer = new frameWindow.MutationObserver(scheduleOwnership)
+    if (frame.contentDocument !== document || document.documentElement !== root) {
+      return
+    }
+    observer.observe(root, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+    refreshOwnership()
+    disconnectComponentOwnership.current = () => {
+      observer.disconnect()
+      if (ownershipFrame !== undefined) {
+        frameWindow.cancelAnimationFrame(ownershipFrame)
+      }
+      disconnectComponentOwnership.current = () => undefined
+    }
+  }, [])
+
   const inspectElement = useCallback(
-    (element: Element, select?: () => void, componentName?: string): void => {
+    (
+      element: Element,
+      select?: () => void,
+      componentName?: string,
+      outlineItem?: SelectedOutlineItem,
+    ): void => {
       const document = frameRef.current?.contentDocument
       if (
         document === null ||
@@ -280,13 +807,28 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           writingMode: computedStyle?.writingMode ?? "horizontal-tb",
         },
         select,
+        outlineItem,
       )
     },
     [onInspect, route],
   )
 
+  reconcileComponentOwnership.current = (names) => {
+    const element = selectedElement.current
+    if (element === undefined || !element.isConnected) {
+      return
+    }
+    const componentName = names.get(element)
+    if (componentName === selectedComponentName.current) {
+      return
+    }
+    selectedComponentName.current = componentName
+    inspectElement(element, undefined, componentName, selectedOutlineSelection.current)
+  }
+
   const selectOutlineElement = useCallback(
-    (element: Element, componentName?: string): void => {
+    (item: OutlineItem): void => {
+      const { componentName, element } = item
       if (!element.isConnected) {
         return
       }
@@ -297,13 +839,15 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           lastInspectionClick.current = undefined
           selectedComponentName.current = componentName
           selectedElement.current = element
+          selectedOutlineSelection.current = { id: item.id, kind: item.kind, route }
           connectSelectionRefresh.current(element)
           updateOverlays.current()
         },
         componentName,
+        { id: item.id, kind: item.kind, route },
       )
     },
-    [inspectElement],
+    [inspectElement, route],
   )
 
   const connectOutline = useCallback(
@@ -311,11 +855,15 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       disconnectOutline.current()
       const document = frame.contentDocument
       const frameWindow = document?.defaultView
+      const root = document?.documentElement
       if (
         document === null ||
         document === undefined ||
         frameWindow === null ||
-        frameWindow === undefined
+        frameWindow === undefined ||
+        root === null ||
+        root === undefined ||
+        frame.contentDocument !== document
       ) {
         onOutline(route, [])
         return
@@ -353,7 +901,6 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       }
       const refreshOutline = (): void => {
         outlineFrame = undefined
-        componentNames.current = new WeakMap<Element, string>()
         const activeComponents: Array<{
           element?: Element
           marker: ChildNode
@@ -400,10 +947,6 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
             for (const component of activeComponents) {
               component.element ??= child
             }
-            const activeComponent = activeComponents.at(-1)
-            if (activeComponent !== undefined) {
-              componentNames.current.set(child, activeComponent.name)
-            }
             const item = describe(child)
             if (item !== undefined) {
               described.push({
@@ -449,7 +992,10 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         }
       }
       const observer = new frameWindow.MutationObserver(scheduleOutline)
-      observer.observe(document.documentElement, {
+      if (frame.contentDocument !== document || document.documentElement !== root) {
+        return
+      }
+      observer.observe(root, {
         attributeFilter: ["aria-label", "data-frame", "id"],
         attributes: true,
         characterData: true,
@@ -475,6 +1021,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     lastInspectionClick.current = undefined
     selectedComponentName.current = undefined
     selectedElement.current = undefined
+    selectedOutlineSelection.current = undefined
     primaryInspection.current = undefined
     updateOverlays.current()
   }, [])
@@ -485,6 +1032,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     lastInspectionClick.current = undefined
     selectedComponentName.current = undefined
     selectedElement.current = undefined
+    selectedOutlineSelection.current = undefined
     primaryInspection.current = undefined
     updateOverlays.current()
   }, [])
@@ -493,56 +1041,168 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
     (frame: HTMLIFrameElement): void => {
       disconnectMeasurement.current()
       const generation = ++measurementGeneration.current
-      if (measurementFrame.current !== undefined) {
-        cancelAnimationFrame(measurementFrame.current)
-        measurementFrame.current = undefined
-      }
+      cancelScheduledMeasurement.current()
       const document = frame.contentDocument
-      if (document === null) {
+      const frameWindow = document?.defaultView
+      const root = document?.documentElement
+      if (
+        document === null ||
+        frameWindow === null ||
+        frameWindow === undefined ||
+        root === null ||
+        root === undefined ||
+        frame.contentDocument !== document
+      ) {
         return
       }
 
       const isCurrentDocument = (): boolean =>
-        measurementGeneration.current === generation && frame.contentDocument === document
+        measurementGeneration.current === generation &&
+        frame.contentDocument === document &&
+        document.documentElement === root &&
+        root.isConnected
+
+      let intrinsicWidth: number | undefined
+      let pendingMeasurement: "height" | "intrinsic" | undefined
+      let intrinsicTimer: number | undefined
+      let intrinsicMaxTimer: number | undefined
+      let disconnectProbe = (): void => undefined
+      cancelScheduledMeasurement.current = () => {
+        if (measurementFrame.current !== undefined) {
+          frameWindow.cancelAnimationFrame(measurementFrame.current)
+          measurementFrame.current = undefined
+        }
+        if (intrinsicTimer !== undefined) {
+          frameWindow.clearTimeout(intrinsicTimer)
+          intrinsicTimer = undefined
+        }
+        if (intrinsicMaxTimer !== undefined) {
+          frameWindow.clearTimeout(intrinsicMaxTimer)
+          intrinsicMaxTimer = undefined
+        }
+        disconnectProbe()
+        pendingMeasurement = undefined
+        cancelScheduledMeasurement.current = () => undefined
+      }
 
       const measure = (): void => {
         if (!isCurrentDocument()) {
           return
         }
         measurementFrame.current = undefined
-        const height =
-          data.kind === "component" ? componentDocumentHeight(document) : documentHeight(document)
+        const measurement = pendingMeasurement
+        pendingMeasurement = undefined
+        if (measurement === "intrinsic" && data.kind === "component") {
+          disconnectProbe()
+          disconnectProbe = createComponentDocumentProbe(
+            document,
+            data.measurementWidth,
+            (probed) => {
+              if (!isCurrentDocument()) {
+                return
+              }
+              intrinsicWidth = probed.width
+              data.onHeight(data.route, probed.height)
+              data.onSize(data.route, probed)
+            },
+          )
+          return
+        }
+        const componentHeight =
+          data.kind === "component" ? componentRenderedHeight(document) : undefined
+        const height = componentHeight ?? documentHeight(document)
         if (height > 0 && isCurrentDocument()) {
           data.onHeight(data.route, height)
-          if (data.kind === "component") {
-            data.onSize(data.route, { height, width: componentDocumentWidth(document) })
+          if (componentHeight !== undefined && intrinsicWidth !== undefined) {
+            data.onSize(data.route, { height, width: intrinsicWidth })
           }
         }
       }
 
-      const scheduleMeasure = (): void => {
+      const scheduleMeasure = (measurement: "height" | "intrinsic"): void => {
         if (!isCurrentDocument()) {
           return
         }
-        if (measurementFrame.current !== undefined) {
-          cancelAnimationFrame(measurementFrame.current)
+        if (measurement === "intrinsic" || pendingMeasurement === undefined) {
+          pendingMeasurement = measurement
         }
-        measurementFrame.current = requestAnimationFrame(measure)
+        if (measurementFrame.current === undefined) {
+          measurementFrame.current = frameWindow.requestAnimationFrame(measure)
+        }
       }
 
-      scheduleMeasure()
-      void document.fonts.ready.then(scheduleMeasure)
-      const frameWindow = document.defaultView
-      if (document.body !== null && frameWindow !== null) {
-        const observer = new frameWindow.ResizeObserver(scheduleMeasure)
-        observer.observe(document.body)
+      const scheduleIntrinsicMeasure = (): void => {
+        if (intrinsicTimer !== undefined) {
+          frameWindow.clearTimeout(intrinsicTimer)
+          intrinsicTimer = undefined
+        }
+        if (intrinsicMaxTimer !== undefined) {
+          frameWindow.clearTimeout(intrinsicMaxTimer)
+          intrinsicMaxTimer = undefined
+        }
+        scheduleMeasure("intrinsic")
+      }
+      const scheduleHeightMeasure = (): void => scheduleMeasure("height")
+      const scheduleQuiescentIntrinsicMeasure = (): void => {
+        scheduleHeightMeasure()
+        if (intrinsicTimer !== undefined) {
+          frameWindow.clearTimeout(intrinsicTimer)
+        }
+        if (intrinsicMaxTimer === undefined) {
+          intrinsicMaxTimer = frameWindow.setTimeout(scheduleIntrinsicMeasure, 600)
+        }
+        intrinsicTimer = frameWindow.setTimeout(() => {
+          intrinsicTimer = undefined
+          scheduleIntrinsicMeasure()
+        }, 120)
+      }
+      scheduleHeightMeasurement.current = scheduleHeightMeasure
+      scheduleIntrinsicMeasure()
+      void document.fonts.ready.then(scheduleIntrinsicMeasure)
+      if (document.body !== null) {
+        const rootSize = (): string => {
+          const body = document.body
+          return body === null
+            ? ""
+            : `${root.scrollWidth}:${root.scrollHeight}:${body.scrollWidth}:${body.scrollHeight}:${body.offsetWidth}:${body.offsetHeight}`
+        }
+        let observedRootSize = rootSize()
+        const rootSizeTimer = frameWindow.setInterval(() => {
+          if (!isCurrentDocument()) {
+            return
+          }
+          const nextRootSize = rootSize()
+          if (nextRootSize !== observedRootSize) {
+            observedRootSize = nextRootSize
+            scheduleHeightMeasure()
+          }
+        }, 250)
+        const mutationObserver = new frameWindow.MutationObserver(scheduleQuiescentIntrinsicMeasure)
+        if (!isCurrentDocument()) {
+          return
+        }
+        mutationObserver.observe(root, {
+          attributes: true,
+          characterData: true,
+          childList: true,
+          subtree: true,
+        })
+        document.addEventListener("load", scheduleQuiescentIntrinsicMeasure, true)
+        document.fonts.addEventListener("loadingdone", scheduleQuiescentIntrinsicMeasure)
+        frameWindow.addEventListener("resize", scheduleHeightMeasure)
         disconnectMeasurement.current = () => {
-          observer.disconnect()
+          mutationObserver.disconnect()
+          frameWindow.clearInterval(rootSizeTimer)
+          document.removeEventListener("load", scheduleQuiescentIntrinsicMeasure, true)
+          document.fonts.removeEventListener("loadingdone", scheduleQuiescentIntrinsicMeasure)
+          frameWindow.removeEventListener("resize", scheduleHeightMeasure)
+          cancelScheduledMeasurement.current()
+          scheduleHeightMeasurement.current = () => undefined
           disconnectMeasurement.current = () => undefined
         }
       }
     },
-    [data],
+    [data.kind, data.measurementWidth, data.onHeight, data.onSize, data.route],
   )
 
   const connectInspector = useCallback(
@@ -559,7 +1219,14 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       const watchSelection = (element: Element): void => {
         disconnectSelectionRefresh.current()
         const frameWindow = document.defaultView
-        if (frameWindow === null) {
+        const root = document.documentElement
+        if (
+          frameWindow === null ||
+          root === null ||
+          frame.contentDocument !== document ||
+          !element.isConnected ||
+          element.ownerDocument !== document
+        ) {
           return
         }
 
@@ -571,7 +1238,12 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           refreshFrame = frameWindow.requestAnimationFrame(() => {
             refreshFrame = undefined
             if (element === selectedElement.current && element.isConnected) {
-              inspectElement(element, undefined, selectedComponentName.current)
+              inspectElement(
+                element,
+                undefined,
+                selectedComponentName.current,
+                selectedOutlineSelection.current,
+              )
             }
           })
         }
@@ -581,12 +1253,20 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           current !== null;
           current = current.parentElement
         ) {
+          if (frame.contentDocument !== document || document.documentElement !== root) {
+            observer.disconnect()
+            return
+          }
           observer.observe(current, {
             attributeFilter: ["class", "dir", "style"],
             attributes: true,
           })
         }
-        if (document.head !== null) {
+        if (
+          document.head !== null &&
+          frame.contentDocument === document &&
+          document.documentElement === root
+        ) {
           observer.observe(document.head, {
             attributeFilter: ["disabled", "href", "media"],
             attributes: true,
@@ -685,6 +1365,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         if (selectedElement.current !== undefined && !selectedElement.current.isConnected) {
           disconnectSelectionRefresh.current()
           selectedElement.current = undefined
+          selectedOutlineSelection.current = undefined
           hitElement.current = undefined
           lastInspectionClick.current = undefined
           onInvalidate(route)
@@ -840,6 +1521,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
           lastInspectionClick.current = event.timeStamp
           selectedComponentName.current = componentNames.current.get(nextSelection)
           selectedElement.current = nextSelection
+          selectedOutlineSelection.current = undefined
           watchSelection(nextSelection)
           updateOverlayPositions()
         })
@@ -954,6 +1636,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
       disconnectSelectionRefresh.current()
       selectedElement.current = undefined
       selectedComponentName.current = undefined
+      selectedOutlineSelection.current = undefined
       hitElement.current = undefined
       lastInspectionClick.current = undefined
       updateOverlays.current()
@@ -961,32 +1644,33 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
   }, [data.selectedRoute, data.selectionGeneration, route])
 
   useEffect(() => {
-    const frame = frameRef.current
-    if (frame !== null) {
-      measureFrame(frame)
-    }
+    scheduleHeightMeasurement.current()
     const element = selectedElement.current
     if (element === undefined) {
       return
     }
     const refreshFrame = requestAnimationFrame(() => {
       if (element === selectedElement.current && element.isConnected) {
-        inspectElement(element, undefined, selectedComponentName.current)
+        inspectElement(
+          element,
+          undefined,
+          selectedComponentName.current,
+          selectedOutlineSelection.current,
+        )
       }
     })
     return () => cancelAnimationFrame(refreshFrame)
-  }, [inspectElement, measureFrame, viewportWidth])
+  }, [inspectElement, viewportWidth])
 
   useEffect(
     () => () => {
+      disconnectComponentOwnership.current()
       disconnectOutline.current()
       disconnectMeasurement.current()
+      cancelScheduledMeasurement.current()
+      scheduleHeightMeasurement.current = () => undefined
       onOutline(route, [])
       measurementGeneration.current += 1
-      if (measurementFrame.current !== undefined) {
-        cancelAnimationFrame(measurementFrame.current)
-        measurementFrame.current = undefined
-      }
     },
     [onOutline, route],
   )
@@ -1007,6 +1691,7 @@ const PageFrame = memo(({ data }: NodeProps<PageNode>) => {
         aria-label={`Preview of ${data.route}`}
         className="page-frame__preview"
         onLoad={(event) => {
+          connectComponentOwnership(event.currentTarget)
           measureFrame(event.currentTarget)
           data.onInvalidate(data.route)
           if (data.selectedRoute === route) {
@@ -1472,6 +2157,56 @@ const sampleRootBackground = (frame: HTMLIFrameElement): CanvasTheme => {
   return defaultCanvasTheme
 }
 
+const createRootBackgroundSnapshot = (sourceDocument: Document): string => {
+  const sourceRoot = sourceDocument.documentElement
+  const clonedRoot = sourceRoot.cloneNode(true) as HTMLElement
+  for (const noscript of clonedRoot.querySelectorAll("noscript")) {
+    noscript.remove()
+  }
+  for (const script of clonedRoot.querySelectorAll("script")) {
+    script.remove()
+  }
+  for (const style of clonedRoot.querySelectorAll("style, link")) {
+    style.remove()
+  }
+  for (const resource of clonedRoot.querySelectorAll(resourceElementSelector)) {
+    for (const attribute of resourceAttributes) {
+      resource.removeAttribute(attribute)
+    }
+    if (resource.localName === "iframe") {
+      resource.setAttribute("sandbox", "")
+    }
+  }
+  for (const element of [clonedRoot, ...clonedRoot.querySelectorAll("*")]) {
+    element.removeAttribute("background")
+    element.removeAttribute("manifest")
+    for (let index = element.attributes.length - 1; index >= 0; index -= 1) {
+      const attribute = element.attributes[index]
+      if (attribute === undefined) {
+        continue
+      }
+      if (
+        attribute.name.toLowerCase().startsWith("on") ||
+        cssCanLoadResource.test(attribute.value) ||
+        ((attribute.name === "href" || attribute.name === "src") &&
+          attribute.value.trimStart().toLowerCase().startsWith("javascript:"))
+      ) {
+        element.removeAttribute(attribute.name)
+      }
+    }
+  }
+  for (const refresh of clonedRoot.querySelectorAll('meta[http-equiv="refresh" i]')) {
+    refresh.remove()
+  }
+  const head = clonedRoot.querySelector("head")
+  if (head !== null) {
+    const style = sourceDocument.createElement("style")
+    style.textContent = inertDocumentCss(sourceDocument).css
+    head.prepend(style)
+  }
+  return `<!doctype html>${clonedRoot.outerHTML}`
+}
+
 const Designer = () => {
   const [initialSession] = useState(readDesignerSession)
   const [routes, setRoutes] = useState<RouteRecord[]>([])
@@ -1485,11 +2220,15 @@ const Designer = () => {
     Record<string, { height: number; width: number }>
   >({})
   const [canvasTheme, setCanvasTheme] = useState(defaultCanvasTheme)
+  const [backgroundSnapshot, setBackgroundSnapshot] = useState<string | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [tool, setTool] = useState<DesignerTool>("pan")
   const [spacePanning, setSpacePanning] = useState(false)
   const [inspection, setInspection] = useState<InspectedElement | undefined>(undefined)
   const [outlines, setOutlines] = useState<Record<string, OutlineItem[]>>({})
+  const [selectedOutlineItem, setSelectedOutlineItem] = useState<SelectedOutlineItem | undefined>(
+    undefined,
+  )
   const [selectionGeneration, setSelectionGeneration] = useState(0)
   const [viewportOptions, setViewportOptions] = useState<ViewportOption[]>([])
   const [viewport, setViewport] = useState<ViewportCondition>("Default")
@@ -1503,14 +2242,16 @@ const Designer = () => {
   >(undefined)
   const fittedRoutes = useRef("")
   const selectionClears = useRef(new Map<string, () => void>())
-  const outlineSelectors = useRef(
-    new Map<string, (element: Element, componentName?: string) => void>(),
+  const outlineSelectors = useRef(new Map<string, (item: OutlineItem) => void>())
+  const pendingOutlineSelection = useRef<{ item: OutlineItem; route: string } | undefined>(
+    undefined,
   )
-  const pendingOutlineSelection = useRef<
-    { componentName?: string; element: Element; route: string } | undefined
-  >(undefined)
   const componentFocusStarted = useRef(false)
   const pendingComponentFocus = useRef<string | undefined>(undefined)
+  const initialViewResolved = useRef(false)
+  const backgroundSampler = useRef<HTMLIFrameElement | null>(null)
+  const disconnectBackgroundSampler = useRef<() => void>(() => undefined)
+  const scheduleBackgroundSample = useRef<() => void>(() => undefined)
   const viewportOption = viewportOptions.find(({ condition }) => condition === viewport)
   const designItems = useMemo<DesignItem[]>(
     () =>
@@ -1529,6 +2270,121 @@ const Designer = () => {
     [components, routes, view],
   )
   const activeItem = designItems.find(({ route }) => route === activeRoute)
+
+  const captureRootBackground = useCallback((): void => {
+    const frame = document.querySelector<HTMLIFrameElement>('.page-frame__preview[title="/"]')
+    const sourceDocument = frame?.contentDocument
+    const canonicalRoot = new URL("/", globalThis.location.href).href
+    if (
+      frame === null ||
+      sourceDocument === null ||
+      sourceDocument === undefined ||
+      sourceDocument.documentElement === null ||
+      sourceDocument.body === null ||
+      sourceDocument.readyState !== "complete" ||
+      sourceDocument.URL !== canonicalRoot ||
+      frame.contentDocument !== sourceDocument ||
+      sourceDocument.defaultView?.frameElement !== frame ||
+      !frame.isConnected
+    ) {
+      setBackgroundSnapshot(undefined)
+      return
+    }
+    setBackgroundSnapshot(createRootBackgroundSnapshot(sourceDocument))
+  }, [])
+
+  const connectBackgroundSampler = useCallback((frame: HTMLIFrameElement | null): void => {
+    disconnectBackgroundSampler.current()
+    if (frame === null) {
+      return
+    }
+    const document = frame.contentDocument
+    const frameWindow = document?.defaultView
+    const root = document?.documentElement
+    if (
+      document === null ||
+      document === undefined ||
+      frameWindow === null ||
+      frameWindow === undefined ||
+      root === null ||
+      root === undefined ||
+      frame.contentDocument !== document
+    ) {
+      return
+    }
+
+    let sampleFrame: number | undefined
+    const resample = (): void => {
+      sampleFrame = undefined
+      if (frame.contentDocument !== document) {
+        return
+      }
+      const nextTheme = sampleRootBackground(frame)
+      setCanvasTheme((current) =>
+        current.background === nextTheme.background && current.dark === nextTheme.dark
+          ? current
+          : nextTheme,
+      )
+    }
+    const scheduleSample = (): void => {
+      if (sampleFrame === undefined) {
+        sampleFrame = frameWindow.requestAnimationFrame(resample)
+      }
+    }
+    scheduleBackgroundSample.current = scheduleSample
+    const mutationObserver = new frameWindow.MutationObserver(scheduleSample)
+    if (frame.contentDocument !== document || document.documentElement !== root) {
+      return
+    }
+    mutationObserver.observe(root, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+    document.addEventListener("load", scheduleSample, true)
+    frameWindow.addEventListener("resize", scheduleSample)
+    resample()
+    disconnectBackgroundSampler.current = () => {
+      mutationObserver.disconnect()
+      document.removeEventListener("load", scheduleSample, true)
+      frameWindow.removeEventListener("resize", scheduleSample)
+      if (sampleFrame !== undefined) {
+        frameWindow.cancelAnimationFrame(sampleFrame)
+      }
+      scheduleBackgroundSample.current = () => undefined
+      disconnectBackgroundSampler.current = () => undefined
+    }
+  }, [])
+
+  useEffect(() => () => disconnectBackgroundSampler.current(), [])
+
+  useEffect(() => {
+    if (view !== "components") {
+      disconnectBackgroundSampler.current()
+    }
+  }, [view])
+
+  useEffect(() => {
+    if (view !== "components") {
+      return
+    }
+    const sampleFrame = requestAnimationFrame(() => scheduleBackgroundSample.current())
+    return () => cancelAnimationFrame(sampleFrame)
+  }, [view, viewportOption?.width])
+
+  useEffect(() => {
+    if (!catalogLoaded || initialViewResolved.current) {
+      return
+    }
+    initialViewResolved.current = true
+    if (routes.length === 0 && components.length > 0) {
+      setView("components")
+      setActiveRoute((current) =>
+        components.some(({ route }) => route === current) ? current : undefined,
+      )
+    }
+  }, [catalogLoaded, components, routes])
 
   useEffect(() => {
     try {
@@ -1629,17 +2485,23 @@ const Designer = () => {
   const clearSelectedElement = useCallback((): void => {
     clearAllFrameSelections()
     setInspection(undefined)
+    setSelectedOutlineItem(undefined)
     setSelectionGeneration((current) => current + 1)
   }, [clearAllFrameSelections])
 
   const inspectElement = useCallback(
-    (nextInspection: InspectedElement, select?: () => void): void => {
+    (
+      nextInspection: InspectedElement,
+      select?: () => void,
+      outlineItem?: SelectedOutlineItem,
+    ): void => {
       if (select !== undefined) {
         clearAllFrameSelections()
         select()
       }
       setActiveRoute(nextInspection.route)
       setInspection(nextInspection)
+      setSelectedOutlineItem(outlineItem)
       setSelectionGeneration((current) => current + 1)
     },
     [clearAllFrameSelections],
@@ -1661,10 +2523,7 @@ const Designer = () => {
   }, [])
 
   const registerOutlineSelect = useCallback(
-    (
-      route: string,
-      select: ((element: Element, componentName?: string) => void) | undefined,
-    ): void => {
+    (route: string, select: ((item: OutlineItem) => void) | undefined): void => {
       if (select === undefined) {
         outlineSelectors.current.delete(route)
       } else {
@@ -1698,13 +2557,19 @@ const Designer = () => {
       componentFocusStarted.current = false
       pendingComponentFocus.current = undefined
       fittedRoutes.current = ""
+      if (nextView === "components") {
+        captureRootBackground()
+      } else {
+        disconnectBackgroundSampler.current()
+      }
       setView(nextView)
     },
-    [clearSelectedElement, view],
+    [captureRootBackground, clearSelectedElement, view],
   )
 
   const invalidateInspection = useCallback((route: string): void => {
     setInspection((current) => (current?.route === route ? undefined : current))
+    setSelectedOutlineItem((current) => (current?.route === route ? undefined : current))
     setSelectionGeneration((current) => current + 1)
   }, [])
 
@@ -1856,10 +2721,11 @@ const Designer = () => {
       fittedRoutes.current = ""
       componentFocusStarted.current = false
       pendingComponentFocus.current = component.route
+      captureRootBackground()
       setActiveRoute(component.route)
       setView("components")
     },
-    [clearSelectedElement, components],
+    [captureRootBackground, clearSelectedElement, components],
   )
 
   const focusOutlineElement = useCallback((route: string, element: Element): void => {
@@ -1897,12 +2763,14 @@ const Designer = () => {
         return
       }
       if (tool === "inspect") {
-        outlineSelectors.current.get(route)?.(item.element, item.componentName)
+        const select = outlineSelectors.current.get(route)
+        if (select !== undefined) {
+          select(item)
+        }
         return
       }
       pendingOutlineSelection.current = {
-        componentName: item.componentName,
-        element: item.element,
+        item,
         route,
       }
       setTool("inspect")
@@ -1922,7 +2790,10 @@ const Designer = () => {
         return
       }
       pendingOutlineSelection.current = undefined
-      outlineSelectors.current.get(pending.route)?.(pending.element, pending.componentName)
+      const select = outlineSelectors.current.get(pending.route)
+      if (select !== undefined) {
+        select(pending.item)
+      }
     })
     return () => cancelAnimationFrame(frame)
   }, [activeRoute, tool])
@@ -1945,6 +2816,7 @@ const Designer = () => {
         interactive: tool === "inspect" && !spacePanning,
         kind: view === "components" ? "component" : "page",
         label: designItems.find((item) => item.route === route)?.label ?? route,
+        measurementWidth: viewport === "Default" ? 240 : width,
         preview: designItems.find((item) => item.route === route)?.preview,
         onHeight,
         onInspect: inspectElement,
@@ -2115,7 +2987,7 @@ const Designer = () => {
   if (error !== undefined) {
     return <main className="designer-state designer-state--error">{error}</main>
   }
-  if (routes.length === 0) {
+  if (!catalogLoaded) {
     return <main className="designer-state">Loading site routes...</main>
   }
   if (viewportOption === undefined) {
@@ -2207,7 +3079,9 @@ const Designer = () => {
                 </button>
               ))}
               {designItems.length === 0 ? (
-                <p className="designer-routes__empty">No components found.</p>
+                <p className="designer-routes__empty">
+                  {view === "pages" ? "No pages found." : "No components found."}
+                </p>
               ) : null}
             </nav>
           </section>
@@ -2231,7 +3105,12 @@ const Designer = () => {
                     <button
                       aria-keyshortcuts="Shift+Enter"
                       aria-level={item.depth + 1}
-                      aria-selected={inspection?.element === item.element}
+                      aria-selected={
+                        selectedOutlineItem !== undefined &&
+                        selectedOutlineItem.route === activeRoute &&
+                        selectedOutlineItem.id === item.id &&
+                        selectedOutlineItem.kind === item.kind
+                      }
                       data-outline-kind={item.kind}
                       key={item.id}
                       onDoubleClick={() => {
@@ -2275,8 +3154,11 @@ const Designer = () => {
             <iframe
               aria-hidden="true"
               className="designer-canvas__background-sampler"
-              onLoad={(event) => setCanvasTheme(sampleRootBackground(event.currentTarget))}
-              src="/"
+              onLoad={(event) => connectBackgroundSampler(event.currentTarget)}
+              ref={backgroundSampler}
+              sandbox="allow-same-origin"
+              src={backgroundSnapshot === undefined ? "/" : undefined}
+              srcDoc={backgroundSnapshot}
               style={{
                 border: 0,
                 height: 1,
@@ -2284,7 +3166,7 @@ const Designer = () => {
                 pointerEvents: "none",
                 position: "absolute",
                 visibility: "hidden",
-                width: 1,
+                width: viewportOption.width,
               }}
               tabIndex={-1}
               title=""
